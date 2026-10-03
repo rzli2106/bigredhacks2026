@@ -20,6 +20,8 @@ const locations = [], analyzer = new HealthAnalyzer();
 function message(text) { $('#phone-message').hidden = false; $('#message-text').textContent = text; }
 $('#close-message').onclick = () => { $('#phone-message').hidden = true; };
 function countReport() { $('#sent-count').textContent = String(++sent); }
+$('#sensor-status').textContent = window.isSecureContext ? 'Sensors inactive · start after pairing' : 'Sensors unavailable · open this page over HTTPS';
+$('#health-status').textContent = nativePlatform() ? 'Native health sharing inactive' : 'Browser mode · motion sensing and manual reports';
 function openPairing() { $('#dock-details').open = true; $('#pair-details').open = true; }
 function pairLink(link) {
   const next = readPairingLink(link);
@@ -146,6 +148,7 @@ function stopSensors() {
   if (nativePlatform()) Health.stopMonitoring().catch(() => {});
   locations.length = 0; $('#start').hidden = false; $('#start').disabled = false; $('#stop').hidden = true;
   $('#connection').textContent = pairing ? 'Paired' : 'Not paired'; $('#sensor-status').textContent = 'Sensors stopped';
+  $('#health-status').textContent = nativePlatform() ? 'Native health sharing stopped' : 'Browser mode · motion sensing and manual reports';
   $('#phone-status').textContent = 'Sensor sharing stopped. GPS navigation remains active.';
 }
 $('#stop').onclick = stopSensors;
