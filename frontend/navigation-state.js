@@ -62,6 +62,7 @@ export class RouteAlerts {
 }
 export const routeMinutes = seconds => seconds === 0 ? '0' : seconds < 60 ? '<1' : String(Math.ceil(seconds / 60));
 export const sameRoute = (a, b) => a?.status === 'ok' && b?.status === 'ok' && a.edgeIds.join('|') === b.edgeIds.join('|');
+export const routeHasClosure = (route, events = []) => route?.status === 'ok' && events.some(event => event.blocked && event.edge_ids.some(id => route.edgeIds.includes(id)));
 export function remainingSeconds(route, location, now = Date.now() / 1000) {
   if (!location || now - location.timestamp > 10 || !route.distanceMeters) return route.durationSeconds;
   const progress = routeProgress(route.geometry, location);

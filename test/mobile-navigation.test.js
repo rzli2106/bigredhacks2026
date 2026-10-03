@@ -8,7 +8,7 @@ import { TelemetryEngine } from '../backend/engine.js';
 import { createTelemetryServer } from '../backend/server.js';
 import { ScenarioRunner } from '../backend/simulator.js';
 import { readFile } from 'node:fs/promises';
-import { RouteAlerts, hazardAhead, resolvePlace, etaDelta, remainingSeconds } from '../frontend/navigation-state.js';
+import { RouteAlerts, hazardAhead, resolvePlace, etaDelta, remainingSeconds, routeHasClosure } from '../frontend/navigation-state.js';
 
 function fixture(alternative = true) {
   const nodes = [{ id: 1, lat: 42.445, lon: -76.485 }, { id: 2, lat: 42.445, lon: -76.484 },
@@ -57,9 +57,12 @@ test('route options handle unreachable alternatives, off-path origins, identical
     engine.ingest({ device_id: 'phone', source: 'manual', metric_type: 'MANUAL_CLOSURE', hazard_category: 'closure', severity: 1, timestamp: 100,
       lat: from.lat, lng: from.lon, event_id: 'closure' });
     const blocked = engine.routeOptions(from, to); assert.equal(blocked.alternative, null); assert.equal(blocked.direct.hazard_ids.length, 1);
+    assert.equal(blocked.direct.blocked, true);
+    assert.equal(routeHasClosure(blocked.direct, engine.snapshot().events), true);
     assert.equal(engine.snapshot().events[0].hazard_category, 'closure');
     assert.throws(() => engine.ingest({ device_id: 'phone', source: 'manual', metric_type: 'MANUAL_CLOSURE', hazard_category: 'pothole', severity: 1, timestamp: 100, lat: from.lat, lng: from.lon }));
     engine.now = () => 14500; assert.equal(engine.routeOptions(from, to).direct.hazard_ids.length, 0);
+    assert.equal(engine.routeOptions(from, to).direct.blocked, false);
   } finally { engine.dispose(); }
 });
 test('alerts only fire once for new intersecting hazards ahead; dismissing does not retrigger on decay', () => {
@@ -100,6 +103,8 @@ test('HTTP options endpoint returns both routes and report categories without ex
   assert.equal(response.status, 201); const snapshot = service.engine.snapshot();
   assert.equal(snapshot.events[0].hazard_category, 'pothole'); assert.equal(JSON.stringify(snapshot).includes('private-phone'), false);
   const update = await (await post('/api/route/options', { from, to })).json(); assert.equal(update.alternative.hazard_ids.length, 0);
+  assert.equal(update.direct.blocked, false);
+  assert.equal(routeHasClosure(update.direct, snapshot.events), false);
 });
 
 test('real campus detours do not claim hazards on zero-length junction connectors', async () => {
