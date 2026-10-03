@@ -107,9 +107,11 @@ dialog.expanded #phone-map{height:min(46dvh,390px)}
 .route-update-warning p{font-size:13px;margin:0 0 8px}
 #retry-route{min-height:48px;width:100%;font-size:13px}
 
-.pin-help{position:absolute;z-index:600;top:68px;left:12px;max-width:min(330px,calc(100vw - 24px));padding:10px 12px;margin:0;border-radius:12px;background:#fffffffa;color:#172b38;box-shadow:0 4px 20px #182b3820;font-size:13px}
+.pin-help{position:absolute;z-index:600;top:calc(max(12px,env(safe-area-inset-top)) + 56px);left:12px;max-width:min(330px,calc(100vw - 24px));padding:10px 12px;margin:0;border-radius:12px;background:#fffffffa;color:#172b38;box-shadow:0 4px 20px #182b3820;font-size:13px}
 
 .pin-reticle{position:absolute;z-index:500;left:50%;top:50%;width:28px;height:28px;transform:translate(-50%,-50%);border:2px solid white;border-radius:50%;box-shadow:0 0 0 2px #172b38;pointer-events:none}
 .pin-reticle::before,.pin-reticle::after{content:"";position:absolute;background:#172b38;left:50%;top:50%;transform:translate(-50%,-50%)}
 .pin-reticle::before{width:38px;height:2px}
 .pin-reticle::after{width:2px;height:38px}
+
+#navigation-map:focus-visible{outline:3px solid #2459e0;outline-offset:-3px}
