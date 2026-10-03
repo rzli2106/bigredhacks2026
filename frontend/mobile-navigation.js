@@ -310,7 +310,13 @@ export class MobileNavigation {
     $('#reroute-alert').hidden = false;
     if (animate) { $('#reroute-alert').classList.remove('enter'); void $('#reroute-alert').offsetWidth; $('#reroute-alert').classList.add('enter'); }
   }
-  hideAlert() { $('#reroute-alert').hidden = true; }
+  hideAlert() {
+    const alert = $('#reroute-alert');
+    if (alert.contains(document.activeElement)) {
+      $($('#route-planner').hidden ? '#edit-route' : '#start-location').focus();
+    }
+    alert.hidden = true;
+  }
   acceptAlternative() {
     if ($('#accept-reroute').disabled || !this.options?.alternative) return;
     this.active = this.options.alternative; this.activeChoice = 'alternative'; this.pending = []; this.hideAlert(); this.renderRoutes();
