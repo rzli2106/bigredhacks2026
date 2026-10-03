@@ -115,6 +115,7 @@ export class MobileNavigation {
     this.options = null; this.active = null; this.routeUpdateError = ''; this.renderUpdateState(); this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true; this.setPlannerOpen(true); this.hideAlert(); this.connect();
   }
   connect() {
+    this.unsubscribe?.();
     const configured = configuration();
     this.unsubscribe = subscribe(snapshot => this.onSnapshot(snapshot), status => {
       $('#map-stream').textContent = status === 'Live' ? 'Live hazards' : status;
@@ -292,6 +293,10 @@ export class MobileNavigation {
     if ($('#accept-reroute').disabled || !this.options?.alternative) return;
     this.active = this.options.alternative; this.activeChoice = 'alternative'; this.pending = []; this.hideAlert(); this.renderRoutes();
     this.notify('Alternative route accepted.');
+  }
+  resume() {
+    this.map.getContainer().addEventListener('keydown', this.pinKeyboard);
+    this.connect(); this.resize.observe($('#navigation-map')); this.map.invalidateSize();
   }
   stop() { this.cancelLocate(); this.map.getContainer().removeEventListener('keydown', this.pinKeyboard); this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.pause(); }
 }

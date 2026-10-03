@@ -154,7 +154,7 @@ function stopSensors() {
 $('#stop').onclick = stopSensors;
 window.addEventListener('pagehide', () => { stopSensors(); ++locationGeneration; stopLocation(); locationStart = null; navigation.stop(); });
 window.addEventListener('pageshow', event => {
-  if (event.persisted) { navigation.connect(); navigation.resize.observe($('#navigation-map')); navigation.map.invalidateSize(); if (location) ensureLocation().catch(message); }
+  if (event.persisted) { navigation.resume(); if (location) ensureLocation().catch(message); }
 });
 
 function setReport(point) {
