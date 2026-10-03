@@ -2,17 +2,26 @@ import { SensorPipeline } from './sensor-pipeline.js';
 
 /** Call start() directly from a user gesture. No network requests are made. */
 export class MotionService {
-  constructor({ config, onCandidate = () => {}, onStatus = () => {}, onSamples = () => {}, window: target = globalThis.window } = {}) {
+  constructor({ config, onCandidate = () => {}, onStatus = () => {}, onSamples = () => {}, onRawSample = () => {}, window: target = globalThis.window } = {}) {
     this.target = target;
     this.pipeline = new SensorPipeline(config);
     this.onCandidate = onCandidate;
     this.onStatus = onStatus;
     this.onSamples = onSamples;
+    this.onRawSample = onRawSample;
     this.running = false;
     this.starting = false;
     this.generation = 0;
     this.handleMotion = (event) => {
       if (this.target.document?.hidden) return;
+      // Copy browser sensor objects explicitly: their axes may not be enumerable.
+      const acceleration = event.accelerationIncludingGravity;
+      const rotation = event.rotationRate;
+      this.onRawSample({
+        timestamp: event.timeStamp > 1e12 ? event.timeStamp : (this.target.performance?.timeOrigin ?? performance.timeOrigin) + event.timeStamp,
+        accelerationIncludingGravity: acceleration ? { x: acceleration.x, y: acceleration.y, z: acceleration.z } : null,
+        rotationRate: rotation ? { alpha: rotation.alpha, beta: rotation.beta, gamma: rotation.gamma } : null,
+      });
       const result = this.pipeline.push({
         timestamp: event.timeStamp,
         accelerationIncludingGravity: event.accelerationIncludingGravity,

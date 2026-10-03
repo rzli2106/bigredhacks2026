@@ -2,6 +2,7 @@ import { DynamicEdgeCosts, EdgeIndex, DisambiguationEngine, routeBetweenPins } f
 import { validateCoordinate } from '../src/routing/geo.js';
 import { TELEMETRY_POLICY, shockRejection, unixSeconds } from '../src/telemetry/policy.js';
 import { withinCornell } from '../src/ui/cornell.js';
+import { walkingRouteOptions } from '../src/routing/route-options.js';
 
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -17,7 +18,7 @@ export class TelemetryEngine {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new ApiError(400,'Expected a telemetry object.');
     const { device_id, lat, lng, source, metric_type, severity, event_id } = payload;
     if (typeof device_id !== 'string' || !/^[\w:-]{1,80}$/.test(device_id)) throw new ApiError(400,'Invalid device_id.');
-    if (!['web_motion','healthkit','health_connect','manual'].includes(source)) throw new ApiError(400,'Unknown source.');
+    if (!['web_motion','native_motion','healthkit','health_connect','manual'].includes(source)) throw new ApiError(400,'Unknown source.');
     if (!Object.hasOwn(TELEMETRY_POLICY,metric_type)) throw new ApiError(400,'Unknown metric_type.');
     if (!Number.isFinite(severity) || severity <= 0 || severity > 1) throw new ApiError(400,'severity must be greater than 0 and at most 1.');
     try { validateCoordinate({lat,lon:lng}); } catch { throw new ApiError(400,'Invalid coordinate.'); }
@@ -27,8 +28,10 @@ export class TelemetryEngine {
     const now = this.now();
     if (timestamp > now + 5 || now - timestamp > 120) throw new ApiError(422,'Telemetry must describe a location observed within the last two minutes.');
     if (source === 'manual' && !['MANUAL_HAZARD','MANUAL_CLOSURE','TERRAIN_DRAG'].includes(metric_type)) throw new ApiError(400,'Manual reports cannot claim sensor shocks.');
+    if (payload.hazard_category !== undefined && (source !== 'manual' ||
+      ({closure:'MANUAL_CLOSURE',pothole:'MANUAL_HAZARD',rough_terrain:'TERRAIN_DRAG'})[payload.hazard_category] !== metric_type)) throw new ApiError(400,'Hazard category does not match the manual report type.');
     if (source !== 'manual' && metric_type.startsWith('MANUAL_')) throw new ApiError(400,'Closures and manual hazards require a manual report.');
-    if (source !== 'web_motion' && metric_type === 'SENSOR_SHOCK') throw new ApiError(400,'SENSOR_SHOCK requires raw web motion evidence.');
+    if (!['web_motion','native_motion'].includes(source) && metric_type === 'SENSOR_SHOCK') throw new ApiError(400,'SENSOR_SHOCK requires gated raw motion evidence.');
     if (metric_type === 'SENSOR_SHOCK') {
       const reason = shockRejection(payload.evidence);
       if (reason) return { accepted:false, reason };
@@ -45,7 +48,7 @@ export class TelemetryEngine {
     const event = this.costs.recordEvent(match.edgeIds, { event_type:policy.event_type, initial_penalty:policy.penalty === Infinity ? Infinity : policy.penalty * severity,
       half_life:policy.halfLife, timestamp, coordinate:{lat,lng}, closure_max:14400 });
     const id = `${this.instanceId}:${event.id}`;
-    this.metadata.set(event.id,{id,metric_type,source,edgeIds:match.edgeIds});
+    this.metadata.set(event.id,{id,metric_type,source,hazardCategory:payload.hazard_category,edgeIds:match.edgeIds});
     if (key) this.dedup.set(key,{id,time:now});
     this.revision++;
     return {accepted:true,id,coordinate:{lat,lng},snapped_coordinate:{lat:match.coordinate.lat,lng:match.coordinate.lon},edge_ids:match.edgeIds};
@@ -91,7 +94,7 @@ export class TelemetryEngine {
         edges.set(id,{id,base_distance:edge.distanceMeters,cost:Number.isFinite(cost)?cost:null,blocked:cost===Infinity});
       }
       // Public stream contains derived hazards only, never device IDs or health measurements.
-      return {id:item.id,coordinate:event.coordinate,metric_type:item.metric_type,source:item.source,
+      return {id:item.id,coordinate:event.coordinate,metric_type:item.metric_type,source:item.source,hazard_category:item.hazardCategory,
         timestamp:event.timestamp,half_life:event.half_life,initial_penalty:blocked?null:event.initial_penalty,
         remaining_penalty:blocked?null:event.initial_penalty*fraction,fraction,blocked,edge_ids:item.edgeIds};
     }).filter(Boolean);
@@ -99,6 +102,10 @@ export class TelemetryEngine {
     return {type:'snapshot',instance_id:this.instanceId,revision:this.revision,time:now,events,edges:[...edges.values()]};
   }
   route(from,to) { return routeBetweenPins(this.graph,this.index,from,to,{costs:this.costs,timestamp:this.now()}); }
+  routeOptions(from,to) {
+    const snapshot=this.snapshot();
+    return {...walkingRouteOptions(this.graph,this.index,from,to,{costs:this.costs,events:snapshot.events,timestamp:snapshot.time}),revision:snapshot.revision,instance_id:this.instanceId};
+  }
   verify(id,action) {
     const item=[...this.metadata.entries()].find(([,meta])=>meta.id===id);
     if (!item) throw new ApiError(404,'Report no longer exists.');

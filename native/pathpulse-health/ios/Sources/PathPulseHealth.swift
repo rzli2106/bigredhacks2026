@@ -1,6 +1,8 @@
 import Foundation
 import Capacitor
 import HealthKit
+import CoreMotion
+import UIKit
 
 /// Reinstall observers during AppDelegate launch to receive HealthKit background wakes.
 @objc public final class PathPulseHealthManager: NSObject {
@@ -84,8 +86,45 @@ import HealthKit
 public class PathPulseHealthPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "PathPulseHealthPlugin"
     public let jsName = "PathPulseHealth"
-    public let pluginMethods: [CAPPluginMethod] = ["availability", "requestPermissions", "startMonitoring", "stopMonitoring", "readSamples"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
-    public override func load() { PathPulseHealthManager.shared.restoreObservers() }
+    public let pluginMethods: [CAPPluginMethod] = ["availability", "requestPermissions", "startMonitoring", "stopMonitoring", "readSamples", "startMotion", "stopMotion"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
+    private let motion = CMMotionManager()
+    private var motionRequested = false
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    public override func load() {
+        PathPulseHealthManager.shared.restoreObservers()
+        lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.motion.stopDeviceMotionUpdates() })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self, self.motionRequested else { return }; self.beginMotion()
+        })
+    }
+    deinit { motion.stopDeviceMotionUpdates(); for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) } }
+    private func beginMotion() {
+        guard !motion.isDeviceMotionActive else { return }
+        motion.deviceMotionUpdateInterval = 0.02
+        motion.startDeviceMotionUpdates(to: .main) { [weak self] sample, error in
+            guard let self = self, self.motionRequested else { return }
+            guard error == nil, let sample = sample else {
+                self.notifyListeners("motionSample", data: ["timestamp": ProcessInfo.processInfo.systemUptime * 1000]); return
+            }
+            // Core Motion acceleration is in g; rotation is rad/s. The shared gate expects m/s² and deg/s.
+            let gravity = sample.gravity, acceleration = sample.userAcceleration, rotation = sample.rotationRate
+            let degrees = 180.0 / Double.pi
+            self.notifyListeners("motionSample", data: ["timestamp": sample.timestamp * 1000,
+                "accelerationIncludingGravity": ["x": (gravity.x + acceleration.x) * 9.80665, "y": (gravity.y + acceleration.y) * 9.80665, "z": (gravity.z + acceleration.z) * 9.80665],
+                "rotationRate": ["alpha": rotation.z * degrees, "beta": rotation.x * degrees, "gamma": rotation.y * degrees]])
+        }
+    }
+    @objc func startMotion(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard self.motion.isDeviceMotionAvailable else { call.reject("Accelerometer and gyroscope are unavailable on this device."); return }
+            self.motionRequested = true
+            if UIApplication.shared.applicationState != .background { self.beginMotion() }
+            call.resolve()
+        }
+    }
+    @objc func stopMotion(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { self.motionRequested = false; self.motion.stopDeviceMotionUpdates(); call.resolve() }
+    }
     @objc func availability(_ call: CAPPluginCall) { call.resolve(["available": PathPulseHealthManager.shared.available]) }
     @objc public override func requestPermissions(_ call: CAPPluginCall) {
         guard PathPulseHealthManager.shared.available else { call.reject("HealthKit is unavailable."); return }

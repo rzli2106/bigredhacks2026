@@ -4,7 +4,9 @@ export const TELEMETRY_POLICY = Object.freeze({
   MANUAL_HAZARD: { event_type: 'MANUAL_HAZARD', penalty: 300, halfLife: 3600 },
   MANUAL_CLOSURE: { event_type: 'MANUAL_CLOSURE', penalty: Infinity, halfLife: 14400 },
 });
-export const SHOCK_GATE = Object.freeze({ gyroLimitDegS: 300, jerkThreshold: 85, accelerationThreshold: 16, maxFwhmMs: 45 });
+// Exactly 15% lower than the original impact thresholds (85 and 16).
+// Gyro and pulse-width rejection ceilings remain unchanged to reject bag tumbles.
+export const SHOCK_GATE = Object.freeze({ gyroLimitDegS: 300, jerkThreshold: 72.25, accelerationThreshold: 13.6, maxFwhmMs: 45 });
 export function shockRejection(evidence) {
   if (!evidence || !['gyro_deg_s','peak_jerk','peak_acceleration','fwhm_ms'].every(key => Number.isFinite(evidence[key]) && evidence[key] >= 0)) return 'missing-motion-evidence';
   if (evidence.gyro_deg_s > SHOCK_GATE.gyroLimitDegS) return 'bag-tumble';

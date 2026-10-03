@@ -8,4 +8,5 @@ dist/
 *.json.tmp
 /ios/
 /android/
+**/.gradle/
 .pathpulse-local.json

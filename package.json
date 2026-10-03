@@ -15,7 +15,7 @@
     "sync:local": "node scripts/sync-local.js",
     "simulate": "node backend/simulator-cli.js",
     "native:sync": "npm run build && npx cap sync",
-    "native:ios": "npm run build && npx cap add ios",
+    "native:ios": "npm run build && node scripts/add-ios.js",
     "native:android": "npm run build && npx cap add android",
     "native:configure": "node scripts/configure-native.js"
   },

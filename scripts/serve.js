@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { loadEnvironment } from './env.js';
 await loadEnvironment();
 const root=fileURLToPath(new URL('../dist/',import.meta.url));
-const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.json':'application/json','.map':'application/json'};
+const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.json':'application/json','.map':'application/json','.wav':'audio/wav'};
 createServer(async(request,response)=>{
   try{
     if(!['GET','HEAD'].includes(request.method)){response.writeHead(405);response.end();return;}

@@ -2,13 +2,44 @@ export function configuration(){
   const config=window.PathPulseConfig??{},api=(config.apiBase||window.location.origin).replace(/\/$/,'');
   return {api,ws:config.wsUrl||`${api.replace(/^http/,'ws')}/ws/stream`,mobile:config.mobileUrl||`${window.location.origin}/mobile`};
 }
-export async function request(path,{method='GET',body,token,api=configuration().api}={}){
-  const response=await fetch(`${api}${path}`,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{})});
+export async function request(path,{method='GET',body,token,api=configuration().api,signal}={}){
+  const response=await fetch(`${api}${path}`,{method,signal,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{})});
   const result=await response.json();if(!response.ok){const error=new Error(result.error||`Request failed (${response.status}).`);error.status=response.status;throw error;}return result;
 }
-export function subscribe(onSnapshot,onStatus=()=>{}){
+
+/** Preserve the sensor cadence, throttle network requests to at most 20 Hz.
+ * No replay of stale motion after reconnecting; gaps reset the server filter. */
+export class RawMotionTransport {
+  constructor({api,token,deviceId,getLocation,onStatus=()=>{},onSent=()=>{}}) {
+    Object.assign(this,{api,token,deviceId,getLocation,onStatus,onSent});
+    this.samples=[];this.enabled=false;this.running=false;this.retryAt=0;
+  }
+  start(){this.enabled=true;this.timer=setInterval(()=>this.flush(),50);}
+  stop(){this.enabled=false;clearInterval(this.timer);this.samples=[];this.controller?.abort();}
+  enqueue(sample){if(!this.enabled)return;this.samples.push(sample);if(this.samples.length>32)this.samples.shift();}
+  async flush(){
+    if(!this.enabled||this.running||Date.now()<this.retryAt)return;
+    const samples=this.samples.splice(0).filter(sample=>Date.now()-sample.timestamp<1000);
+    if(!samples.length)return;
+    this.running=true;this.controller=new AbortController();
+    const timeout=setTimeout(()=>this.controller.abort(),3000);
+    try{
+      const result=await request('/api/telemetry/raw',{api:this.api,token:this.token,method:'POST',signal:this.controller.signal,
+        body:{device_id:this.deviceId,samples,location:this.getLocation()}});
+      if(!this.enabled)return;
+      this.onStatus(`Sensors streaming · ${samples.length} samples delivered`);
+      for(const event of result.events??[])this.onSent(event);
+    }catch(error){
+      if(!this.enabled)return;
+      this.onStatus(`Sensors: ${error.message}`);
+      this.retryAt=Date.now()+(error.status===429?60000:1000);
+      if([401,403].includes(error.status))this.stop();
+    }finally{clearTimeout(timeout);this.running=false;}
+  }
+}
+export function subscribe(onSnapshot,onStatus=()=>{},{ws=configuration().ws}={}){
   let socket,timer,closed=false,attempt=0;
-  function connect(){if(closed)return;onStatus('Connecting');socket=new WebSocket(configuration().ws);
+  function connect(){if(closed)return;onStatus('Connecting');socket=new WebSocket(ws);
     socket.onopen=()=>{attempt=0;onStatus('Live');};
     socket.onmessage=event=>{try{const data=JSON.parse(event.data);if(data.type==='snapshot')onSnapshot(data);}catch{onStatus('Stream error');}};
     socket.onclose=()=>{if(closed)return;onStatus('Reconnecting');timer=setTimeout(connect,Math.min(30000,1000*2**attempt++));};

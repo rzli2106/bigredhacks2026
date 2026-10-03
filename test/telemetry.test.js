@@ -7,6 +7,7 @@ import {TelemetryEngine} from '../backend/engine.js';
 import {ScenarioRunner} from '../backend/simulator.js';
 import {createTelemetryServer} from '../backend/server.js';
 import {HealthAnalyzer} from '../frontend/health-analysis.js';
+import {SHOCK_GATE} from '../src/telemetry/policy.js';
 const graph=buildWalkingGraph(JSON.parse(await readFile(new URL('../public/cornell-osm.json',import.meta.url),'utf8')));
 const fixture=()=>new ScenarioRunner(graph,{baseTime:1800000000});
 const payload=(runner,overrides={})=>({device_id:'phone-1',event_id:crypto.randomUUID(),lat:runner.corridor.center.lat,lng:runner.corridor.center.lon,source:'web_motion',metric_type:'SENSOR_SHOCK',severity:1,timestamp:runner.baseTime,evidence:{gyro_deg_s:0,peak_acceleration:17.81,peak_jerk:300,fwhm_ms:26.67},...overrides});
@@ -16,7 +17,7 @@ test('actual Cornell scenarios A–D pass and rewind restores the original hazar
 test('schema, freshness, coverage, and shock proof reject invalid evidence without mutation',()=>{
  const runner=fixture(),engine=runner.engine;
  for(const overrides of [{severity:0},{timestamp:runner.baseTime-121},{lat:0,lng:0},{source:'healthkit',metric_type:'MANUAL_CLOSURE'}])assert.throws(()=>engine.ingest(payload(runner,overrides)));
- for(const evidence of [{gyro_deg_s:301,peak_jerk:900,peak_acceleration:30,fwhm_ms:20},{gyro_deg_s:0,peak_jerk:85,peak_acceleration:20,fwhm_ms:20},{gyro_deg_s:0,peak_jerk:90,peak_acceleration:16,fwhm_ms:20},{gyro_deg_s:0,peak_jerk:90,peak_acceleration:20,fwhm_ms:45},{}])assert.equal(engine.ingest(payload(runner,{evidence})).accepted,false);
+ for(const evidence of [{gyro_deg_s:301,peak_jerk:900,peak_acceleration:30,fwhm_ms:20},{gyro_deg_s:0,peak_jerk:SHOCK_GATE.jerkThreshold,peak_acceleration:20,fwhm_ms:20},{gyro_deg_s:0,peak_jerk:90,peak_acceleration:SHOCK_GATE.accelerationThreshold,fwhm_ms:20},{gyro_deg_s:0,peak_jerk:90,peak_acceleration:20,fwhm_ms:45},{}])assert.equal(engine.ingest(payload(runner,{evidence})).accepted,false);
  assert.equal(engine.events().length,0);const input=payload(runner);const first=engine.ingest(input);assert.equal(engine.ingest(input).id,first.id);assert.equal(engine.events().length,1);assert.equal(JSON.stringify(engine.snapshot()).includes('phone-1'),false);runner.dispose();
 });
 test('all policy penalties and hard-closure expiration match the requested half-lives',()=>{

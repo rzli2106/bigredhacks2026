@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: pathpulse-api
+    name: clearpath
     runtime: docker
     plan: free
     healthCheckPath: /api/health
@@ -12,10 +12,10 @@ services:
       - key: ADMIN_TOKEN
         generateValue: true
       - key: CORS_ORIGINS
-        sync: false
+        value: https://clearpath.wiki,https://www.clearpath.wiki,capacitor://localhost,https://localhost
       - key: PUBLIC_API_URL
-        sync: false
+        value: https://www.clearpath.wiki
       - key: PUBLIC_WS_URL
-        sync: false
+        value: wss://www.clearpath.wiki/ws/stream
       - key: PUBLIC_MOBILE_URL
-        sync: false
+        value: https://www.clearpath.wiki/mobile
