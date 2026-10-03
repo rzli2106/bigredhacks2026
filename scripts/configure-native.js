@@ -18,6 +18,16 @@ export async function configureNative(root=process.cwd()){
     if(!source.includes('import PathPulseHealth'))source=source.replace('import Capacitor','import Capacitor\nimport PathPulseHealth');
     if(!source.includes('PathPulseHealthManager.shared.restoreObservers()'))source=source.replace('return true','PathPulseHealthManager.shared.restoreObservers()\n        return true');
     await writeFile(delegate,source);result.ios=true;
+    const project=path('ios/App/App.xcodeproj/project.pbxproj');
+    if(await exists(project)){
+      let pbx=await readFile(project,'utf8');
+      pbx=pbx.replace(/buildSettings = \{([\s\S]*?)\n\s*\};/g,(block,settings)=>{
+        if(!/INFOPLIST_FILE\s*=\s*"?App\/Info\.plist"?;/.test(settings))return block;
+        if(/CODE_SIGN_ENTITLEMENTS\s*=/.test(block))return block.replace(/CODE_SIGN_ENTITLEMENTS\s*=\s*[^;]+;/,'CODE_SIGN_ENTITLEMENTS = App/PathPulse.entitlements;');
+        return block.replace('buildSettings = {','buildSettings = {\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App/PathPulse.entitlements;');
+      });
+      await writeFile(project,pbx);
+    }
   }
   const variables=path('android/variables.gradle');
   if(await exists(variables)){const text=await readFile(variables,'utf8');await writeFile(variables,text.replace(/minSdkVersion\s*=\s*\d+/,'minSdkVersion = 34'));result.android=true;}
@@ -25,6 +35,6 @@ export async function configureNative(root=process.cwd()){
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const result=await configureNative();
-  if(result.ios)console.log('iOS privacy strings, launch hook, and entitlements written. Enable HealthKit + Background Delivery and select PathPulse.entitlements in Xcode Signing & Capabilities.');
+  if(result.ios)console.log('iOS privacy strings, launch hook, and signing entitlements configured. Select your signing team and enable HealthKit + Background Delivery in Xcode.');
   if(result.android)console.log('Android minimum SDK set to 34 (Android 14).');
 }

@@ -1,4 +1,14 @@
-# Deploy PathPulse without registering a domain
+# Deploy ClearPath at clearpath.wiki
+
+The domain is registered at Porkbun. The selected deployment is a single Render Docker web service named **clearpath** serving the dashboard, `/mobile`, API and `/ws/stream`. Use the free instance for the hackathon; it can sleep after inactivity. No Vercel service is required for this deployment.
+
+The checked-in `render.yaml` sets the clearpath.wiki HTTPS/WSS URLs, exact web/native CORS origins, and an automatically generated private observer key. `backend/main.js` also permits Render’s assigned HTTPS origin so the provider URL can be inspected while DNS propagates. Set the health probe to `/api/health`. Do not set `BACKEND_PORT` on Render.
+
+Add `clearpath.wiki` under the service’s **Settings → Custom Domains**, then copy the exact DNS target displayed by Render into Porkbun. Update only the root parking record and the matching `www` parking record if adding that hostname; preserve mail and unrelated records. Wait until Render verifies DNS and issues a certificate. Test HTTPS root, `/mobile`, `/api/health`, pairing, and WSS before calling the deployment complete. Native builds use the same URLs; see `native/README.md`.
+
+The sections below retain local development and alternative split-host deployment instructions.
+
+## Alternative hosting and local development
 
 GoDaddy is **optional**. A Vercel `*.vercel.app` frontend and Render `*.onrender.com` backend provide HTTPS/WSS and support the entire phone-pairing flow. No domain purchase, Google Maps key, or DNS change is needed for the hackathon.
 

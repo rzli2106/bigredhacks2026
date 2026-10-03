@@ -4,7 +4,7 @@ The local `pathpulse-health` Capacitor 7 plugin contains Swift HealthKit and Kot
 
 ## iOS
 
-Requires macOS with **full Xcode**, an iOS signing team with HealthKit capability, CocoaPods (for the default Capacitor workflow), and a physical HealthKit-capable device.
+Requires macOS with **full Xcode**, an iOS signing team with HealthKit capability, and a physical HealthKit-capable device. This project uses Swift Package Manager and does not require CocoaPods. `native:ios` works around the Capacitor 7.6.9 CLI SPM argument bug without modifying installed packages; recheck the wrapper when upgrading the CLI.
 
 ```sh
 npm ci
@@ -14,7 +14,7 @@ npm run native:configure
 npx cap open ios
 ```
 
-In the App target, enable **HealthKit** and **Background Delivery** under Signing & Capabilities. Select `App/PathPulse.entitlements` as the target's **Code Signing Entitlements** file and verify that both `com.apple.developer.healthkit` and `com.apple.developer.healthkit.background-delivery` are true. The configure script writes this file, privacy strings, and `PathPulseHealthManager.shared.restoreObservers()` in `AppDelegate.didFinishLaunchingWithOptions`. Confirm that hook remains before returning from launch; background HealthKit wake-up requires reinstating queries during launch, not just after a WebView loads. `NSHealthShareUsageDescription`, motion, and both native location usage-description keys are installed (the app requests foreground location only); the plugin never requests health write access.
+In the App target, enable **HealthKit** and **Background Delivery** under Signing & Capabilities. The configure script selects `App/PathPulse.entitlements` for Debug and Release; select your signing team and verify that both `com.apple.developer.healthkit` and `com.apple.developer.healthkit.background-delivery` are true. The configure script writes this file, privacy strings, and `PathPulseHealthManager.shared.restoreObservers()` in `AppDelegate.didFinishLaunchingWithOptions`. Confirm that hook remains before returning from launch; background HealthKit wake-up requires reinstating queries during launch, not just after a WebView loads. `NSHealthShareUsageDescription`, motion, and both native location usage-description keys are installed (the app requests foreground location only); the plugin never requests health write access.
 
 The bridge requests walking asymmetry, speed, step length and step count. Observers execute anchored queries, persist anchors and at most 500 pending samples **on device**, and always call their completion handler after collection. Background delivery frequency `.immediate` is a request to iOS, not a real-time guarantee. `readSamples` drains that local queue into the foreground analyzer. Stop sharing stops observers and background delivery. HealthKit does not disclose whether read access was denied; a successful authorization request is labeled **requested**, not **granted**.
 
@@ -39,6 +39,17 @@ The plugin uses stable `androidx.health.connect:connect-client:1.1.0`, read-only
 
 Set the build-time PUBLIC_* URLs to your production hosts and include `capacitor://localhost` and `https://localhost` in backend CORS. Rebuild/sync after changing URLs. The native shell starts at the bundled `/mobile.html` asset. Native location uses `@capacitor/geolocation`, not an assumption that a WebView exposes browser GPS. Use the observer's QR in Safari/Chrome for browser mode; to use native health, copy its **complete pairing link** into the native app's **Paste a pairing link** field and tap Start sharing. An HTTPS backend is required on the physical phone; `127.0.0.1` points to the phone itself, not your development computer. `npm run sync:local` generates the tunnel link.
 
-Validate permission denial/revocation, empty health stores, a fresh speed change with contemporaneous GPS, a delayed record with no matching fix, app background/foreground, stop sharing, and real hardware motion before relying on detections. The current workstation has command-line Swift but no full Xcode or Android compiler, so native SDK compilation and physical-device delivery remain unverified. Swift syntax parsing alone is not an iOS build.
+Validate permission denial/revocation, empty health stores, a fresh speed change with contemporaneous GPS, a delayed record with no matching fix, app background/foreground, stop sharing, and real hardware motion before relying on detections. The generated iOS SPM and Android projects have both been synced with the local plugin. The current workstation has command-line Swift but no full Xcode or Android SDK, so native SDK compilation and physical-device delivery remain unverified. Swift syntax parsing alone is not an iOS build.
 
 References: [Capacitor iOS plugins](https://capacitorjs.com/docs/v7/plugins/ios), [Capacitor Android plugins](https://capacitorjs.com/docs/v7/plugins/android), [HealthKit observer queries](https://developer.apple.com/documentation/healthkit/executing-observer-queries), [HealthKit asymmetry](https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifier/walkingasymmetrypercentage), [Health Connect setup](https://developer.android.com/health-and-fitness/health-connect/get-started), [Health Connect releases](https://developer.android.com/jetpack/androidx/releases/health-connect).
+
+## Native impact motion
+
+The native shell uses Core Motion on iOS and SensorManager on Android at a requested 50 Hz, rather than WebView DeviceMotionEvent. iOS converts gravity plus user acceleration from g to m/s² and angular velocity from rad/s to deg/s. Android pairs accelerometer samples with gyroscope data no more than 40 ms old. Missing or stale rotation fails closed. Both platforms release sensors when backgrounded and resume only while sharing is requested. Stop sharing unregisters native sensors and JavaScript listeners; a late asynchronous startup cannot restart sharing. The shared SensorPipeline applies exactly the browser tumble, jerk, pulse-width, warm-up, gap and cooldown gates. Only accepted impact evidence is uploaded with source `native_motion`; raw streams stay on device. HealthKit and Health Connect remain complementary sources of terrain-drag evidence.
+
+To build against the deployed domain, run:
+
+```sh
+PUBLIC_API_URL=https://clearpath.wiki PUBLIC_WS_URL=wss://clearpath.wiki/ws/stream PUBLIC_MOBILE_URL=https://clearpath.wiki/mobile npm run native:sync
+npm run native:configure
+```

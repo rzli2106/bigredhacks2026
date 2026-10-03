@@ -1,4 +1,5 @@
 import {MotionService} from '../src/motion-service.js';
+import {NativeMotionService} from './native-motion.js';
 import {captureLocation,watchLocation} from './location.js';
 import {withinCornell} from '../src/ui/cornell.js';
 import {DeviceTransport,request} from './connection.js';
@@ -14,9 +15,10 @@ function pairLink(link){const url=new URL(link),fragment=new URLSearchParams(url
 try{if(location===undefined&&window.location.hash)pairLink(window.location.href);}catch(e){message(e.message);}
 $('#pair').onclick=()=>{try{pairLink($('#pair-link').value.trim());message('Pairing link ready. Tap Start sharing.');}catch(e){message(e.message);}};
 function freshLocation(){if(!location||Date.now()/1000-location.timestamp>10||location.accuracyMeters>20||!withinCornell(location))throw new Error('A fresh, precise Cornell location is needed.');return location;}
-const motion=new MotionService({config:{rotationLimitRadS:300*Math.PI/180},onSamples:()=>lastMotion=Date.now()/1000,onStatus:status=>{if(status.state==='sample-dropped')lastUnsafeMotion=Date.now()/1000;},onCandidate:candidate=>{
+const Motion=nativePlatform()?NativeMotionService:MotionService;
+const motion=new Motion({bridge:Health,config:{rotationLimitRadS:300*Math.PI/180},onSamples:()=>lastMotion=Date.now()/1000,onStatus:status=>{if(status.state==='sample-dropped')lastUnsafeMotion=Date.now()/1000;},onCandidate:candidate=>{
   if(!sharing||candidate.peakAcceleration<=16)return;lastShock=Date.now()/1000;
-  try{const point=freshLocation();transport.enqueue({lat:point.lat,lng:point.lon,accuracy_meters:point.accuracyMeters,source:'web_motion',metric_type:'SENSOR_SHOCK',severity:1,timestamp:Date.now()/1000,
+  try{const point=freshLocation();transport.enqueue({lat:point.lat,lng:point.lon,accuracy_meters:point.accuracyMeters,source:nativePlatform()?'native_motion':'web_motion',metric_type:'SENSOR_SHOCK',severity:1,timestamp:Date.now()/1000,
     evidence:{gyro_deg_s:candidate.peakAngularSpeed*180/Math.PI,peak_jerk:candidate.peakJerk,peak_acceleration:candidate.peakAcceleration,fwhm_ms:candidate.fwhmMs}});}catch(e){$('#phone-status').textContent=e.message;}
 }});
 async function submitPassage(){
@@ -26,7 +28,7 @@ async function submitPassage(){
   lastPassage=Date.now()/1000;
   try{await request('/api/telemetry/passage',{api:pairing.api,token:pairing.token,method:'POST',body:{device_id:pairing.deviceId,passage_id:crypto.randomUUID(),shock_detected:false,trace:trace.map(point=>({lat:point.lat,lng:point.lon,timestamp:point.timestamp,accuracy_meters:point.accuracyMeters}))}});}catch(error){message(error.message);}
 }
-async function readHealth(){try{const {samples}=await Health.readSamples();for(const event of analyzer.ingest(samples,locations))transport?.enqueue(event);}catch(e){$('#health-status').textContent=`Health: ${e.message}`;}}
+async function readHealth(){const activeTransport=transport;try{const {samples}=await Health.readSamples();if(!sharing||activeTransport!==transport)return;for(const event of analyzer.ingest(samples,locations))activeTransport.enqueue(event);}catch(e){if(sharing&&activeTransport===transport)$('#health-status').textContent=`Health: ${e.message}`;}}
 $('#start').onclick=async()=>{
   if(!pairing){message('Scan a QR code or paste a pairing link first.');$('#pair-details').open=true;return;}
   $('#start').disabled=true;sharing=true;
@@ -35,7 +37,7 @@ $('#start').onclick=async()=>{
   transport=new DeviceTransport({...pairing,onStatus:status=>$('#connection').textContent=status,onRejected:message,onSent:()=>{$('#sent-count').textContent=String(++sent);}});transport.start();
   watchLocation(point=>{location=point;locations.push(location);while(locations.length>300||locations[0]?.timestamp<Date.now()/1000-180)locations.shift();submitPassage();$('#phone-status').textContent=withinCornell(location)?`Location ±${Math.round(location.accuracyMeters)} m · sharing is active`:'Outside Cornell coverage. Automatic reports are paused.';},e=>{$('#phone-status').textContent=`Location: ${e.message}`;}).then(stopWatch=>{if(sharing)stopLocation=stopWatch;else stopWatch();}).catch(error=>{$('#phone-status').textContent=error.message;});
   $('#start').hidden=true;$('#stop').hidden=false;
-  try{await motionRequest;if(nativePlatform()){const availability=await Health.availability();if(availability.available){await Health.requestPermissions();if(!sharing)return;await Health.startMonitoring();healthTimer=setInterval(readHealth,30000);readHealth();$('#health-status').textContent='Native health access requested · fresh samples are matched to location';}else $('#health-status').textContent=availability.reason||'Native health is unavailable.';}}
+  try{await motionRequest;if(!sharing)return;if(nativePlatform()){const availability=await Health.availability();if(!sharing)return;if(availability.available){await Health.requestPermissions();if(!sharing)return;await Health.startMonitoring();if(!sharing){await Health.stopMonitoring();return;}healthTimer=setInterval(readHealth,30000);readHealth();$('#health-status').textContent='Native health access requested · fresh samples are matched to location';}else $('#health-status').textContent=availability.reason||'Native health is unavailable.';}}
   catch(e){$('#health-status').textContent=e.message;}finally{$('#start').disabled=false;}
 };
 function stop(){sharing=false;motion.stop();stopLocation();stopLocation=()=>{};clearInterval(healthTimer);if(nativePlatform())Health.stopMonitoring().catch(()=>{});transport?.stop();locations.length=0;location=null;$('#start').hidden=false;$('#stop').hidden=true;$('#connection').textContent='Stopped';$('#phone-status').textContent='Sharing stopped. Tap Start to reconnect.';}

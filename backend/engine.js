@@ -17,7 +17,7 @@ export class TelemetryEngine {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new ApiError(400,'Expected a telemetry object.');
     const { device_id, lat, lng, source, metric_type, severity, event_id } = payload;
     if (typeof device_id !== 'string' || !/^[\w:-]{1,80}$/.test(device_id)) throw new ApiError(400,'Invalid device_id.');
-    if (!['web_motion','healthkit','health_connect','manual'].includes(source)) throw new ApiError(400,'Unknown source.');
+    if (!['web_motion','native_motion','healthkit','health_connect','manual'].includes(source)) throw new ApiError(400,'Unknown source.');
     if (!Object.hasOwn(TELEMETRY_POLICY,metric_type)) throw new ApiError(400,'Unknown metric_type.');
     if (!Number.isFinite(severity) || severity <= 0 || severity > 1) throw new ApiError(400,'severity must be greater than 0 and at most 1.');
     try { validateCoordinate({lat,lon:lng}); } catch { throw new ApiError(400,'Invalid coordinate.'); }
@@ -28,7 +28,7 @@ export class TelemetryEngine {
     if (timestamp > now + 5 || now - timestamp > 120) throw new ApiError(422,'Telemetry must describe a location observed within the last two minutes.');
     if (source === 'manual' && !['MANUAL_HAZARD','MANUAL_CLOSURE','TERRAIN_DRAG'].includes(metric_type)) throw new ApiError(400,'Manual reports cannot claim sensor shocks.');
     if (source !== 'manual' && metric_type.startsWith('MANUAL_')) throw new ApiError(400,'Closures and manual hazards require a manual report.');
-    if (source !== 'web_motion' && metric_type === 'SENSOR_SHOCK') throw new ApiError(400,'SENSOR_SHOCK requires raw web motion evidence.');
+    if (!['web_motion','native_motion'].includes(source) && metric_type === 'SENSOR_SHOCK') throw new ApiError(400,'SENSOR_SHOCK requires gated raw motion evidence.');
     if (metric_type === 'SENSOR_SHOCK') {
       const reason = shockRejection(payload.evidence);
       if (reason) return { accepted:false, reason };
