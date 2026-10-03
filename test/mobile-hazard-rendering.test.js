@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { MobileNavigation } from '../frontend/mobile-navigation.js';
+const T=1800000000;
+test('mobile snapshot rendering fades hazard fill and outline while active closures stay visible',t=>{
+  const markers=[], oldWindow=globalThis.window,oldDocument=globalThis.document;
+  globalThis.window={L:{circleMarker(coordinate,style){const marker={coordinate,style,addTo(){return this;},bindTooltip(label){this.label=label.textContent;},getElement(){return {setAttribute:(key,value)=>{this[key]=value;}};}};markers.push(marker);return marker;}}};
+  globalThis.document={createElement:()=>({textContent:''})};
+  t.after(()=>{if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;});
+  const nav=Object.create(MobileNavigation.prototype);
+  Object.assign(nav,{alerts:{observe:()=>[]},getLocation:()=>null,pending:[],hazards:{clearLayers(){}},renderAlert(){},chime(){}});
+  const base={timestamp:T,half_life:1800,initial_penalty:50,coordinate:{lat:42.4468,lng:-76.485},metric_type:'SENSOR_SHOCK',edge_ids:['synthetic-edge']};
+  const events=[{...base,id:'fresh',timestamp:T+1800},{...base,id:'half'},{...base,id:'quarter',timestamp:T-1800},{...base,id:'closure',blocked:true,initial_penalty:null,metric_type:'MANUAL_CLOSURE'}];
+  nav.onSnapshot({instance_id:'synthetic',revision:1,time:T+1800,events});
+  assert.deepEqual(markers.map(m=>m.style.fillOpacity),[1,.5,.25,1]);
+  assert.deepEqual(markers.map(m=>m.style.opacity),[1,.5,.25,1]);
+  assert.notEqual(markers[0].style.fillColor,markers[1].style.fillColor);assert.equal(markers[3].style.fillColor,'#c54136');
+  assert.equal(markers[0].role,'img');assert.equal(markers[1]['aria-label'],markers[1].label);
+  assert.match(markers[0].label,/Recent report/);assert.match(markers[1].label,/Fading report/);assert.match(markers[3].label,/Active closure/);
+});
