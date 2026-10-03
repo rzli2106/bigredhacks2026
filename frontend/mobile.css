@@ -91,9 +91,9 @@ dialog.expanded #phone-map{height:min(46dvh,390px)}
 #phone-map{transition:none}
 }
 
-.destination-control { display:flex; min-width:0; gap:4px; }
-.destination-control input { min-width:0; width:100%; }
-#destination-toggle { min-width:44px; touch-action:manipulation; }
-.destination-suggestions { position:fixed; z-index:1200; background:white; border:1px solid #d5dce5; border-radius:12px; box-shadow:0 8px 30px #172c3b30; max-height:240px; overflow:auto; overscroll-behavior:contain; }
-.destination-suggestions button { display:block; width:100%; min-height:48px; text-align:left; border:0; border-radius:0; background:white; color:#192c3b; padding:12px; touch-action:manipulation; }
-.destination-suggestions button:hover,.destination-suggestions button:focus { background:#eaf0ff; }
+.location-control { display:flex; min-width:0; gap:4px; }
+.location-control input { min-width:0; width:100%; }
+#start-toggle, #destination-toggle { min-width:44px; touch-action:manipulation; }
+.location-suggestions { position:fixed; z-index:1200; background:white; border:1px solid #d5dce5; border-radius:12px; box-shadow:0 8px 30px #172c3b30; max-height:240px; overflow:auto; overscroll-behavior:contain; }
+.location-suggestions button { display:block; width:100%; min-height:48px; text-align:left; border:0; border-radius:0; background:white; color:#192c3b; padding:12px; touch-action:manipulation; }
+.location-suggestions button:hover,.location-suggestions button:focus { background:#eaf0ff; }

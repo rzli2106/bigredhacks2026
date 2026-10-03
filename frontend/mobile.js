@@ -9,7 +9,7 @@ import { HealthAnalyzer } from './health-analysis.js';
 import { MobileNavigation } from './mobile-navigation.js';
 
 const $ = selector => document.querySelector(selector);
-let pairing, transport, rawTransport, navigation, healthTimer, location, locationStart;
+let deviceSession, transport, rawTransport, navigation, healthTimer, location, locationStart;
 let sharing = false, sharingGeneration = 0, locationGeneration = 0, sent = 0;
 let stopLocation = () => {}, lastMotion = 0, lastUnsafeMotion = 0, lastShock = 0, lastPassage = 0;
 let reportLocation, reportCategory, reportPayload, reportMap, reportMarker, reportGeneration = 0, reportSending = false;
@@ -20,9 +20,9 @@ $('#close-message').onclick = () => { $('#phone-message').hidden = true; };
 function countReport() { $('#sent-count').textContent = String(++sent); }
 let sessionRequest;
 async function ensureSession() {
-  if (pairing && (!pairing.expiresAt || pairing.expiresAt > Date.now() / 1000 + 30)) return pairing;
-  sessionRequest ??= registerDevice(undefined, pairing).then(session => {
-    pairing = session; $('#connection').textContent = 'Connected'; return session;
+  if (deviceSession && (!deviceSession.expiresAt || deviceSession.expiresAt > Date.now() / 1000 + 30)) return deviceSession;
+  sessionRequest ??= registerDevice(undefined, deviceSession).then(session => {
+    deviceSession = session; $('#connection').textContent = 'Connected'; return session;
   }).finally(() => { sessionRequest = null; });
   return sessionRequest;
 }
@@ -54,7 +54,7 @@ async function ensureLocation() {
   }
   return location;
 }
-navigation = new MobileNavigation({ api: pairing?.api, getLocation: () => location, ensureLocation, notify: message });
+navigation = new MobileNavigation({ api: deviceSession?.api, getLocation: () => location, ensureLocation, notify: message });
 const Motion = nativePlatform() ? NativeMotionService : MotionService;
 const motion = new Motion({
   bridge: Health, config: { rotationLimitRadS: SHOCK_GATE.gyroLimitDegS * Math.PI / 180 },
@@ -80,7 +80,7 @@ async function submitPassage() {
   const trace = locations.slice(-30), start = trace[0]?.timestamp;
   if (trace.length < 8 || start <= Math.max(lastUnsafeMotion, lastShock) || trace.some((point, i) => point.accuracyMeters > .25 || (i > 0 && point.timestamp - trace[i - 1].timestamp > .5))) return;
   lastPassage = Date.now() / 1000;
-  try { await request('/api/telemetry/passage', { api: pairing.api, token: pairing.token, method: 'POST', body: { device_id: pairing.deviceId, passage_id: crypto.randomUUID(), shock_detected: false,
+  try { await request('/api/telemetry/passage', { api: deviceSession.api, token: deviceSession.token, method: 'POST', body: { device_id: deviceSession.deviceId, passage_id: crypto.randomUUID(), shock_detected: false,
     trace: trace.map(point => ({ lat: point.lat, lng: point.lon, timestamp: point.timestamp, accuracy_meters: point.accuracyMeters })) } }); } catch (error) { message(error.message); }
 }
 async function readHealth() {
@@ -102,9 +102,9 @@ $('#start').onclick = async () => {
   try {
     await ensureSession(); if (!sharing || generation !== sharingGeneration) return;
     const motionAllowed = await motionRequest; if (!sharing || generation !== sharingGeneration) return;
-    transport = new DeviceTransport({ ...pairing, onStatus: status => { $('#connection').textContent = status; }, onRejected: message, onSent: countReport }); transport.start();
+    transport = new DeviceTransport({ ...deviceSession, onStatus: status => { $('#connection').textContent = status; }, onRejected: message, onSent: countReport }); transport.start();
     if (!nativePlatform() && motionAllowed) {
-      rawTransport = new WebSocketMotionTransport({ ...pairing, getLocation: () => { try { const point = freshLocation(); return { lat: point.lat, lng: point.lon, accuracy_meters: point.accuracyMeters, timestamp: point.timestamp }; } catch { return null; } },
+      rawTransport = new WebSocketMotionTransport({ ...deviceSession, getLocation: () => { try { const point = freshLocation(); return { lat: point.lat, lng: point.lon, accuracy_meters: point.accuracyMeters, timestamp: point.timestamp }; } catch { return null; } },
         onStatus: status => { $('#sensor-status').textContent = status; }, onSent: countReport }); rawTransport.start();
     }
     await locationRequest; if (!sharing || generation !== sharingGeneration) return;
@@ -191,9 +191,9 @@ $('#confirm-report').onclick = async () => {
   try {
     await ensureSession();
     if (generation !== reportGeneration || !$('#phone-report-dialog').open) return;
-    reportPayload ??= { device_id: pairing.deviceId, event_id: crypto.randomUUID(), lat: reportLocation.lat, lng: reportLocation.lon,
+    reportPayload ??= { device_id: deviceSession.deviceId, event_id: crypto.randomUUID(), lat: reportLocation.lat, lng: reportLocation.lon,
     accuracy_meters: reportLocation.accuracyMeters, source: 'manual', metric_type: reportCategory.metric, hazard_category: reportCategory.category, severity: 1, timestamp: reportLocation.timestamp };
-    const result = await request('/api/telemetry/event', { api: pairing.api, token: pairing.token, method: 'POST', body: reportPayload, signal: controller.signal });
+    const result = await request('/api/telemetry/event', { api: deviceSession.api, token: deviceSession.token, method: 'POST', body: reportPayload, signal: controller.signal });
     if (!result.accepted) throw new Error(result.reason || 'The report was not accepted.');
     if (!result.duplicate) countReport();
     if (generation === reportGeneration) { $('#phone-report-dialog').close(); message('Report confirmed. The live map has been updated.'); }

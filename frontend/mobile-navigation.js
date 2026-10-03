@@ -1,5 +1,5 @@
 import { NotificationChime } from './notification-chime.js';
-import { DestinationPicker } from './destination-picker.js';
+import { LocationPicker } from './location-picker.js';
 import { request, subscribe, configuration } from './connection.js';
 import { CORNELL_PLACES, CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
 import { resolvePlace, hazardName, RouteAlerts, routeMinutes, etaDelta, hazardAhead, remainingSeconds, sameRoute } from './navigation-state.js';
@@ -17,10 +17,8 @@ export class MobileNavigation {
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(this.map);
     L.control.zoom({ position: 'bottomright' }).addTo(this.map);
     this.routes = L.layerGroup().addTo(this.map); this.hazards = L.layerGroup().addTo(this.map);
-    for (const place of CORNELL_PLACES) {
-      const option = document.createElement('option'); option.value = place.name; $('#campus-places').append(option);
-    }
-    this.picker = new DestinationPicker($('#destination-location'), $('#destination-toggle'), CORNELL_PLACES);
+    this.startPicker = new LocationPicker($('#start-location'), $('#start-toggle'), [{ name: 'My live location' }, ...CORNELL_PLACES], { label: 'Start locations' });
+    this.destinationPicker = new LocationPicker($('#destination-location'), $('#destination-toggle'), CORNELL_PLACES, { label: 'Destinations' });
     this.map.on('click', ({ latlng }) => {
       if (!withinCornell({ lat: latlng.lat, lon: latlng.lng })) { this.notify('Choose a destination inside Cornell coverage.'); return; }
       $('#destination-location').value = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
@@ -198,5 +196,5 @@ export class MobileNavigation {
     this.active = this.options.alternative; this.activeChoice = 'alternative'; this.pending = []; this.hideAlert(); this.renderRoutes();
     this.notify('Alternative route accepted.');
   }
-  stop() { this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.stop(); this.picker.close(); }
+  stop() { this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.stop(); this.startPicker.close(); this.destinationPicker.close(); }
 }

@@ -4,7 +4,7 @@ The domain is registered at Porkbun. Render currently uses **www.clearpath.wiki*
 
 The checked-in `render.yaml` sets the www.clearpath.wiki HTTPS/WSS URLs, exact web/native CORS origins, and an automatically generated private observer key. `backend/main.js` also permits Render’s assigned HTTPS origin so the provider URL can be inspected while DNS propagates. Set the health probe to `/api/health`. Do not set `BACKEND_PORT` on Render.
 
-Add `clearpath.wiki` under the service’s **Settings → Custom Domains**, then copy the exact DNS target displayed by Render into Porkbun. Update only the root parking record and the matching `www` parking record if adding that hostname; preserve mail and unrelated records. Wait until Render verifies DNS and issues a certificate. Test HTTPS root, `/mobile`, `/api/health`, pairing, and WSS before calling the deployment complete. Native builds use the same URLs; see `native/README.md`.
+Add `clearpath.wiki` under the service’s **Settings → Custom Domains**, then copy the exact DNS target displayed by Render into Porkbun. Update only the root parking record and the matching `www` parking record if adding that hostname; preserve mail and unrelated records. Wait until Render verifies DNS and issues a certificate. Test HTTPS root, `/mobile`, `/api/health`, direct device registration, and WSS before calling the deployment complete. Native builds use the same URLs; see `native/README.md`.
 
 Production now deploys the tested `main` branch. After merging a feature or committing a minor fix, use **Manual Deploy → Deploy latest commit** and verify that the successful deployment's Source matches the intended main commit. Check the public `/mobile` route and `/api/health` after rollout. See `docs/ui-verification.md` for current test evidence and physical-device limitations.
 
@@ -12,7 +12,7 @@ The sections below retain local development and alternative split-host deploymen
 
 ## Alternative hosting and local development
 
-GoDaddy is **optional**. A Vercel `*.vercel.app` frontend and Render `*.onrender.com` backend provide HTTPS/WSS and support the entire phone-pairing flow. No domain purchase, Google Maps key, or DNS change is needed for the hackathon.
+GoDaddy is **optional**. A Vercel `*.vercel.app` frontend and Render `*.onrender.com` backend provide HTTPS/WSS and support the standalone phone connection. No domain purchase, Google Maps key, or DNS change is needed for the hackathon.
 
 ## 1. Local development
 
@@ -43,11 +43,11 @@ BACKEND_PORT=8001 npm run sync:local
 npm run sync:local -- --dry-run
 ```
 
-The utility builds the app, starts `ngrok http 8000` (or your `BACKEND_PORT`), discovers its HTTPS URL via the local ngrok API, starts the API and desktop observer, configures CORS and WSS, and prints a scoped pairing QR. The phone loads `/mobile` from the tunneled backend, which also serves the built assets. The desktop uses the loopback API so creating a QR does not require an observer key. Additional QRs are available through **Connect Phone → Create pairing QR**. Ctrl+C stops both servers and the tunnel. A conflicting port, unavailable ngrok agent, missing auth, or startup timeout fails with a message.
+The utility builds the app, starts `ngrok http 8000` (or your `BACKEND_PORT`), discovers its HTTPS URL via the local ngrok API, starts the API and desktop observer, configures CORS and WSS, and prints the standalone `/mobile` URL. Open that URL on your phone. Ctrl+C stops both servers and the tunnel. A conflicting port, unavailable ngrok agent, missing auth, or startup timeout fails with a message.
 
-Scan the QR on a phone and tap **Start Sensors**. Browsers require this explicit tap for motion permission; permission cannot be silently requested when a QR opens. Approve location and motion, keep the page in the foreground, and walk inside Cornell coverage. Tap **Stop Sensors** to stop telemetry and discard unsent sensor reports. GPS navigation remains active until the page closes. HealthKit/Health Connect require the native build described in `native/README.md`; ordinary Safari/Chrome cannot read health stores.
+Open the HTTPS phone URL and tap **Enable Navigation & Sensors**. Browsers require this explicit tap for motion permission. Approve location and motion, keep the page in the foreground, and walk inside Cornell coverage. Tap **Stop Sensors** to stop telemetry and discard unsent sensor reports. GPS navigation remains active until the page closes. HealthKit/Health Connect require the native build described in `native/README.md`; ordinary Safari/Chrome cannot read health stores.
 
-Pair links carry a four-hour device-scoped token in the URL **fragment** (not the query). Keep them private; do not put a real QR in public screenshots. `/mobile` strips no fragment because it needs the credentials until pairing is parsed; fragments are not sent in HTTP requests. API updates go over authenticated HTTPS POST, then observers receive derived hazard updates over WSS. Devices cannot resolve other reports or create additional pairings.
+The phone stores its device ID locally and obtains a four-hour scoped token directly from `POST /api/devices/register`. The token authenticates the first message on `/ws/device`; it never appears in the WebSocket URL. Raw motion streams over WSS, manual reports use authenticated HTTPS POST, and observers receive derived hazards over `/ws/stream`. Devices cannot resolve reports.
 
 ## 3. Render backend (HTTPS + WSS)
 
@@ -67,7 +67,7 @@ Configure:
 
 Replace examples with the actual URLs from your hosting dashboards. Do not include trailing slashes in origins. Add a Vercel preview origin explicitly if you want that preview to pair; CORS does not allow arbitrary preview domains. The health endpoint `/api/health` must return `ok: true`. WebSocket path: `/ws/stream`.
 
-The service currently keeps reports, pairing sessions, and rate limits in memory. Restart/redeploy loses them. Use **one backend instance** for the hackathon; multiple replicas need a shared database/pubsub and session store. Render's free service may sleep or cold-start; wait for `/api/health` before testing. A paid always-on instance avoids that demo interruption. No production report retention/database is implied by these configs.
+The service currently keeps reports, device sessions, and rate limits in memory. Restart/redeploy loses them. Use **one backend instance** for the hackathon; multiple replicas need a shared database/pubsub and session store. Render's free service may sleep or cold-start; wait for `/api/health` before testing. A paid always-on instance avoids that demo interruption. No production report retention/database is implied by these configs.
 
 ## 4. Vercel frontend
 
@@ -81,7 +81,7 @@ PUBLIC_MOBILE_URL=https://pathpulse-demo.vercel.app/mobile
 
 Never add `ADMIN_TOKEN` to Vercel's public/build variables. After a URL/env change, redeploy the frontend and update/redeploy Render's matching variables. `dist/runtime-config.js` contains only these public URLs. A Render-only deployment also works: set `PUBLIC_MOBILE_URL=https://YOUR-SERVICE.onrender.com/mobile`, include that origin in CORS, and use its root observer page.
 
-In production, **Connect Phone** asks for the backend's observer key. Copy `ADMIN_TOKEN` from Render into that password field, then create a QR. It remains in page memory, is never bundled or persisted, and authorizes pairing and report verification. Reload to clear it. Each phone gets a separate token. The public observer stream includes derived hazard coordinates, penalties and device **counts**, never device identifiers or raw health values. It is a public hackathon hazard feed; use private streaming/authentication before handling private location data in a deployed product.
+In production, dashboard report submission and verification require the observer key. Open **How PathPulse works** and enter `ADMIN_TOKEN` from Render into its password field. It remains in page memory and is never bundled or persisted; reload to clear it. Phone activation needs no observer key. The public observer stream includes derived hazard coordinates, penalties and device **counts**, never device identifiers or raw health values.
 
 ## 5. Optional custom domain, if registration becomes available
 
@@ -95,7 +95,7 @@ Only do this after both provider URLs work. Registering a domain is not required
 
 Do not paste `https://`, paths, or `/ws/stream` into DNS record values. Remove conflicting records for these names; preserve email MX/TXT records and unrelated names. Add `api.yourdomain.com` in Render **Settings → Custom Domains**, verify DNS, and wait for the TLS certificate. Vercel's displayed DNS targets can vary; do not reuse an old universal IP from a tutorial. Choose one canonical frontend hostname and redirect the other in Vercel.
 
-Then set both hosts' public URLs to `https://api.yourdomain.com`, `wss://api.yourdomain.com/ws/stream`, and `https://yourdomain.com/mobile`; update Render CORS to the exact root/www origins you actually use, and redeploy. Test HTTPS `/mobile` and WSS before showing the QR.
+Then set both hosts' public URLs to `https://api.yourdomain.com`, `wss://api.yourdomain.com/ws/stream`, and `https://yourdomain.com/mobile`; update Render CORS to the exact root/www origins you actually use, and redeploy. Test HTTPS `/mobile` and WSS before sharing the phone URL.
 
 ## 6. Verify the deployment as a user
 

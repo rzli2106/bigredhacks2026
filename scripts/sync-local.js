@@ -1,10 +1,9 @@
 import {spawn} from 'node:child_process';
 import {createConnection} from 'node:net';
-import QRCode from 'qrcode-terminal';
 import {loadEnvironment} from './env.js';
 await loadEnvironment();
 const apiPort=Number(process.env.BACKEND_PORT??8000),frontPort=Number(process.env.FRONTEND_PORT??5173);
-if(process.argv.includes('--dry-run')){console.log(`Plan: build → ngrok http ${apiPort} → API:${apiPort} + observer:${frontPort} → paired HTTPS /mobile QR. Requires ngrok installed and authenticated. No tunnel started.`);process.exit(0);}
+if(process.argv.includes('--dry-run')){console.log(`Plan: build → ngrok http ${apiPort} → API:${apiPort} + observer:${frontPort} → standalone HTTPS /mobile. Requires ngrok installed and authenticated. No tunnel started.`);process.exit(0);}
 const children=[];let stopping=false;
 function stop(code=0){if(stopping)return;stopping=true;for(const child of children)child.kill('SIGTERM');process.exitCode=code;}
 process.on('SIGINT',()=>stop());process.on('SIGTERM',()=>stop());
@@ -22,8 +21,6 @@ try{
     LOCAL_API_URL:`http://127.0.0.1:${apiPort}`,LOCAL_WS_URL:`ws://127.0.0.1:${apiPort}/ws/stream`,CORS_ORIGINS:[`http://127.0.0.1:${frontPort}`,`http://localhost:${frontPort}`,tunnel,'capacitor://localhost','https://localhost'].join(',')};
   launch(process.execPath,['backend/main.js'],env);launch(process.execPath,['scripts/serve.js'],{...env,PORT:String(frontPort)});
   await waitFor(async()=>(await fetch(`http://127.0.0.1:${apiPort}/api/health`)).ok);
-  const response=await fetch(`http://127.0.0.1:${apiPort}/api/pairing`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mobile_url:`${tunnel}/mobile`})});
-  const data=await response.json();if(!response.ok)throw new Error(data.error);
-  console.log(`\nObserver: http://127.0.0.1:${frontPort}/\nScan with your phone, then tap Start sharing. The pairing expires in four hours.\n`);QRCode.generate(data.url,{small:true});console.log(data.url);
+  console.log(`\nObserver: http://127.0.0.1:${frontPort}/\nPhone: ${tunnel}/mobile\nOpen the phone URL and tap Enable Navigation & Sensors.\n`);
   console.log('\nCtrl+C stops the API, observer, and public tunnel.');
 }catch(error){console.error(error.message);stop(1);}

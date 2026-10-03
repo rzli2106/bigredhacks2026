@@ -4,8 +4,7 @@ import { captureDeviceLocation, INCIDENT_CATEGORIES, incidentAppearance } from '
 import { icon, fillIcons } from './icons.js';
 import { fetchCampus } from './campus-data.js';
 import {ScenarioRunner} from '../../backend/simulator.js';
-import {configuration,request,subscribe} from '../../frontend/connection.js';
-import QRCode from 'qrcode';
+import {request,subscribe} from '../../frontend/connection.js';
 
 const $ = (selector) => document.querySelector(selector);
 fillIcons();
@@ -30,7 +29,7 @@ const endpointLabels = { origin: '', destination: '' };
 let snapshotVersion, viewIntent = 'campus', nearbyGeneration = 0, locateGeneration = 0;
 let reportLocation = null, reportGeneration = 0, picking = null, loadingArea = false, areaPromise;
 let toastTimer, undoAction, locationMarker, locationCircle;
-let mode='live',runner,lastLiveSnapshot,liveSignature='',pairingLink='',serverOffset=0;
+let mode='live',runner,lastLiveSnapshot,liveSignature='',serverOffset=0;
 const clock=()=>mode==='simulation'&&runner?runner.baseTime+runner.offset:Date.now()/1000+serverOffset;
 const reports = new Map();
 const pins = new Map();
@@ -458,13 +457,8 @@ $('#run-all').onclick=()=>{if(!graph)return;switchMode('simulation');runner.resu
 $('#reset-simulation').onclick=()=>{runner.reset();runner.results=[];applySnapshot(runner.snapshot(),true);showResults();notify('Simulation reset.');};
 $('#simulation-time').oninput=()=>{runner.seek(Number($('#simulation-time').value));applySnapshot(runner.snapshot(),true);};
 $('#inject-simulation').onclick=()=>startPicking('simulation');
-async function createPair(){const data=await request('/api/pairing',{method:'POST',token:$('#observer-key').value.trim(),body:{mobile_url:configuration().mobile}});pairingLink=data.url;return data;}
 async function sendManual(point,metric){const result=await request('/api/telemetry/manual',{method:'POST',token:$('#observer-key').value.trim(),body:{device_id:'observer-manual',event_id:crypto.randomUUID(),lat:point.lat,lng:point.lon,accuracy_meters:point.accuracyMeters,source:'manual',metric_type:metric,severity:1,timestamp:Date.now()/1000}});lastLiveSnapshot=await request('/api/telemetry/snapshot');if(mode==='live')applySnapshot(lastLiveSnapshot);return result;}
 async function verifyReport(metadata,action){try{if(mode==='simulation'){runner.verify(metadata.remoteId,action);applySnapshot(runner.snapshot(),true);}else{await request('/api/telemetry/verify',{method:'POST',token:$('#observer-key').value.trim(),body:{id:metadata.remoteId,action}});lastLiveSnapshot=await request('/api/telemetry/snapshot');applySnapshot(lastLiveSnapshot);}map.closePopup();notify(action==='confirm'?'Report refreshed.':'Report marked resolved.');return true;}catch(error){notify(error.message);return false;}}
-$('#connect-device').onclick=()=>{$('#pair-error').hidden=true;$('#connect-dialog').showModal();createPairingQr();};
-async function createPairingQr(){const button=$('#create-pairing');if(button.disabled)return;button.disabled=true;$('#pair-error').hidden=true;$('#pairing-qr').hidden=true;$('#copy-pairing').hidden=true;$('#pairing-link').hidden=true;$('#pair-link-label').hidden=true;$('#pair-expiry').textContent='';$('#copy-status').textContent='';pairingLink='';try{const data=await createPair();await QRCode.toCanvas($('#pairing-qr'),data.url,{width:240,margin:2,errorCorrectionLevel:'M'});$('#pairing-qr').hidden=false;$('#copy-pairing').hidden=false;$('#pairing-link').hidden=false;$('#pair-link-label').hidden=false;$('#pairing-link').value=data.url;$('#pair-expiry').textContent=`Expires ${new Date(data.expires_at*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}. Scan only on a device you trust.`;}catch(error){$('#pair-error').textContent=error.message;$('#pair-error').hidden=false;}finally{button.disabled=false;}}
-$('#create-pairing').onclick=createPairingQr;
-$('#copy-pairing').onclick=async()=>{try{await navigator.clipboard.writeText(pairingLink);$('#copy-status').textContent='Pairing link copied.';}catch{$('#copy-status').textContent='Clipboard is unavailable. Select and copy the link above, or scan the QR.';}};
 const unsubscribe=subscribe(snapshot=>{lastLiveSnapshot=snapshot;$('#device-count').textContent=String(snapshot.connected_devices??0);if(mode==='live')applySnapshot(snapshot);},status=>$('#stream-status').textContent=status);
 loadArea().catch((error) => { $('#map-error').hidden = false; $('#map-error').textContent = error.message; });
 const refresh = setInterval(() => { if (costs) { renderIncidents(); renderRoute(); } },10000);

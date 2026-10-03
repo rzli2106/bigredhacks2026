@@ -1,13 +1,13 @@
 /** A real button list works on touch browsers that do not expose datalist UI. */
-export class DestinationPicker {
-  constructor(input, toggle, places) {
+export class LocationPicker {
+  constructor(input, toggle, places, { label = 'Locations' } = {}) {
     Object.assign(this, { input, toggle, places });
-    this.menu = document.createElement('div'); this.menu.id = 'destination-suggestions';
-    this.menu.className = 'destination-suggestions'; this.menu.hidden = true;
-    this.menu.setAttribute('role', 'listbox'); this.menu.setAttribute('aria-label', 'Destinations'); document.body.append(this.menu);
+    this.menu = document.createElement('div'); this.menu.id = `${input.id}-suggestions`;
+    this.menu.className = 'location-suggestions'; this.menu.hidden = true;
+    this.menu.setAttribute('role', 'listbox'); this.menu.setAttribute('aria-label', label); document.body.append(this.menu);
     input.setAttribute('role', 'combobox'); input.setAttribute('aria-autocomplete', 'list');
     input.setAttribute('aria-controls', this.menu.id); toggle.setAttribute('aria-controls', this.menu.id);
-    input.addEventListener('focus', () => this.open()); input.addEventListener('input', () => this.open());
+    input.addEventListener('focus', () => this.open(true)); input.addEventListener('input', () => this.open());
     toggle.onclick = () => this.menu.hidden ? this.open(true) : this.close();
     input.addEventListener('keydown', event => {
       if (event.key === 'Escape') this.close();
@@ -22,10 +22,16 @@ export class DestinationPicker {
     window.addEventListener('resize', () => this.close());
   }
   open(all = false) {
+    document.querySelectorAll('.location-suggestions').forEach(menu => {
+      if (menu === this.menu) return;
+      menu.hidden = true;
+      document.querySelectorAll(`[aria-controls="${menu.id}"]`).forEach(control => control.setAttribute('aria-expanded', 'false'));
+    });
     const query = all ? '' : this.input.value.trim().toLowerCase(); this.menu.replaceChildren();
     for (const place of this.places.filter(place => place.name.toLowerCase().includes(query))) {
       const button = document.createElement('button'); button.type = 'button'; button.textContent = place.name;
-      button.setAttribute('role', 'option'); button.onclick = () => { this.input.value = place.name; this.close(); };
+      button.setAttribute('role', 'option'); button.setAttribute('aria-selected', String(place.name === this.input.value));
+      button.onclick = () => { this.input.value = place.name; this.close(); this.input.dispatchEvent(new Event('change', { bubbles: true })); };
       this.menu.append(button);
     }
     const rect = this.input.getBoundingClientRect();
