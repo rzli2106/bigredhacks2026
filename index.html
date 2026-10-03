@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>Waymark — A clearer way forward</title>
+  <link rel="icon" href="/public/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/node_modules/leaflet/dist/leaflet.css">
+  <link rel="stylesheet" href="/src/ui/styles.css">
+  <script defer src="/node_modules/leaflet/dist/leaflet.js"></script>
+  <script type="module" src="/src/ui/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#journey">Skip to route planner</a>
+  <header class="header">
+    <a class="brand" href="/" aria-label="Waymark home"><span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 23 13 8l5 15 7-15M5 23h5"/></svg></span>waymark<span class="brand-period">.</span></a>
+    <span class="header-tagline">A clearer way forward.</span>
+    <div class="header-actions"><span class="area-label"><i data-icon="pin"></i><span id="area-name">Cornell, Ithaca</span></span><button id="open-area" class="button button-light"><i data-icon="layers"></i><span>Load live area</span></button></div>
+  </header>
+  <main class="workspace">
+    <aside class="sidebar" id="journey" tabindex="-1">
+      <div class="intro"><span class="eyebrow">A LITTLE LOCAL KNOWLEDGE</span><h1>Find your way.<br>Mind the unexpected.</h1><p>Walking routes that adapt to what’s<br class="desktop-break"> happening on the ground.</p></div>
+      <form id="route-form" class="route-form">
+        <div class="locations"><span class="location-rail" aria-hidden="true"><b></b><span></span><b></b></span><div class="location-fields"><label for="origin">Starting point</label><select id="origin" name="origin"></select><div class="field-divider"></div><label for="destination">Destination</label><select id="destination" name="destination"></select></div><button type="button" id="swap-route" class="icon-button swap" aria-label="Swap starting point and destination"><i data-icon="swap"></i></button></div>
+        <button class="button button-primary route-submit" type="submit">Find a walking route<i data-icon="arrow-right"></i></button>
+        <p id="route-error" class="inline-error" role="alert" hidden></p>
+      </form>
+      <section id="route-summary" class="route-summary" aria-label="Current walking route" hidden>
+        <div class="route-summary-top"><span class="route-icon"><i data-icon="walk"></i></span><div><strong><span id="route-minutes">—</span> <span class="unit">min</span></strong><span id="route-distance" class="distance">—</span></div><span class="route-tag">Walking</span></div>
+        <p id="route-context">Your route considers current reports.</p>
+      </section>
+      <section class="nearby" aria-labelledby="nearby-title"><div class="section-title"><h2 id="nearby-title">On the ground</h2><span id="report-count" class="count">0</span></div><p class="section-note" id="report-caption">Sample reports · for exploration</p><div id="incident-list" class="incident-list"></div><p id="empty-reports" class="empty-state" hidden>No active reports in this area.<br>Know something? Add a report.</p></section>
+      <div class="sidebar-footer"><span class="small-mark" aria-hidden="true"><i data-icon="sparkle"></i></span><p>A small heads-up.<br>A better walk for everyone.</p><button id="open-info" class="icon-button" aria-label="How Waymark works"><i data-icon="info"></i></button></div>
+    </aside>
+    <section class="map-section" aria-label="Interactive walking map">
+      <div id="map" aria-label="Walking routes and hazard reports"></div>
+      <div class="map-top"><span id="data-badge" class="map-badge"><span class="status-dot"></span>Sample area<span class="badge-divider"></span><span>Explore the controls</span></span><button id="reset-view" class="map-control" aria-label="Fit map to loaded area"><i data-icon="expand"></i></button></div>
+      <div class="map-controls"><button id="zoom-in" class="map-control" aria-label="Zoom in"><i data-icon="plus"></i></button><button id="zoom-out" class="map-control" aria-label="Zoom out"><i data-icon="minus"></i></button><button id="locate" class="map-control locate" aria-label="Show my location"><i data-icon="locate"></i></button></div>
+      <div class="map-bottom"><div class="map-legend"><span><b class="legend-line"></b>Walking route</span><span><b class="legend-hazard"></b>Recent report</span><button id="toggle-nodes" aria-pressed="true">Nodes <span class="toggle-dot"></span></button></div></div>
+      <div class="report-controls"><span class="report-hint">Something in the way?</span><button id="report-trigger" class="report-trigger" aria-label="Report an incident at my current location" aria-haspopup="dialog" aria-expanded="false"><span aria-hidden="true">!</span><span>Report</span></button></div>
+      <div id="pick-banner" class="pick-banner" hidden><span>Tap the map to place your report.</span><button id="cancel-pick" class="button button-light">Cancel</button></div>
+      <p id="map-error" class="map-error" hidden></p>
+    </section>
+  </main>
+  <div class="status-bar"><span><span class="status-dot"></span><span id="status-text">Sample routes and reports · saved in this session</span></span><span>Built for the everyday detour.</span></div>
+
+  <dialog id="report-dialog" class="report-dialog" aria-labelledby="report-title">
+    <button class="icon-button close-dialog" data-close="report-dialog" aria-label="Cancel incident report"><i data-icon="close"></i></button>
+    <span class="eyebrow">A QUICK HEADS-UP</span><h2 id="report-title">What’s in the way?</h2><p id="report-location" role="status">Getting your current location…</p>
+    <div class="radial-menu" role="group" aria-label="Incident category">
+      <span class="radial-center" aria-hidden="true"><i data-icon="pin"></i></span>
+      <button class="incident-choice closure" data-category="closure" disabled><span class="choice-icon"><i data-icon="closed"></i></span><span>Road Closed /<br>Impassable</span></button>
+      <button class="incident-choice hazard" data-category="hazard" disabled><span class="choice-icon"><i data-icon="hazard"></i></span><span>Hazard /<br>Obstacle</span></button>
+      <button class="incident-choice uneven" data-category="uneven" disabled><span class="choice-icon"><i data-icon="uneven"></i></span><span>Slow /<br>Uneven Ground</span></button>
+    </div>
+    <p id="report-location-error" class="inline-error" role="alert" hidden></p>
+    <div class="report-dialog-footer"><span id="coordinate-label">Location is captured on your first tap.</span><button id="choose-map-point" class="text-button">Choose on map instead<i data-icon="arrow-right"></i></button></div>
+  </dialog>
+
+  <dialog id="area-dialog" class="standard-dialog" aria-labelledby="area-title"><button class="icon-button close-dialog" data-close="area-dialog" aria-label="Close area settings"><i data-icon="close"></i></button><span class="eyebrow">YOUR NEIGHBORHOOD</span><h2 id="area-title">Walk somewhere new.</h2><p>Move the map to your neighborhood, then load its walking paths from OpenStreetMap.</p><div class="area-options"><button id="load-visible" class="button button-primary"><i data-icon="layers"></i>Load area in view</button><button id="load-nearby" class="button button-light"><i data-icon="locate"></i>Load around my location</button><button id="restore-demo" class="text-button">Return to sample area<i data-icon="arrow-right"></i></button></div><p class="muted">Loading a new area replaces reports in this session.</p><p id="area-error" class="inline-error" role="alert" hidden></p></dialog>
+
+  <dialog id="info-dialog" class="standard-dialog" aria-labelledby="info-title"><button class="icon-button close-dialog" data-close="info-dialog" aria-label="Close information"><i data-icon="close"></i></button><span class="eyebrow">GROUND-LEVEL KNOWLEDGE</span><h2 id="info-title">Small reports.<br>Better routes.</h2><p>Tap <strong>!</strong> to capture your location, then choose what you see. Reports immediately influence walking routes in your current session.</p><div class="info-row"><span class="info-dot"></span><p><strong>Fresh reports stand out.</strong><br>Red and orange pins gradually fade toward yellow as their evidence ages. Closures remain visible until they expire.</p></div><div class="info-row"><span class="info-dot faded"></span><p><strong>A little verification helps.</strong><br>Open a report to confirm it’s still there or mark it resolved.</p></div><p class="muted">The sample area contains illustrative paths and incidents. Routes use pedestrian paths; wheelchair-specific routing and report sharing are not available yet.</p></dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden><i data-icon="check"></i><span id="toast-text"></span><button id="undo" class="text-button" hidden>Undo</button><button id="dismiss-toast" class="icon-button" aria-label="Dismiss notification"><i data-icon="close"></i></button></div>
+  <noscript><p class="noscript">Enable JavaScript to use the walking map and incident reporter.</p></noscript>
+</body>
+</html>

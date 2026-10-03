@@ -4,9 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node scripts/serve.js",
     "test": "node --test",
     "routing:benchmark": "node scripts/benchmark-routing.js",
     "routing:ingest": "node scripts/ingest-routing.js"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  }
 }

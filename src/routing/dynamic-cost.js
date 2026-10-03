@@ -17,6 +17,8 @@ export class DynamicEdgeCosts {
   #events = new Map();
   #sequence = 0;
   #timer;
+  #attachments = new Map();
+  #congestion = new Map();
 
   constructor(graph, {
     now = () => Date.now() / 1000,
@@ -30,6 +32,8 @@ export class DynamicEdgeCosts {
     this.graph = graph;
     this.now = now;
     this.closureMaxSeconds = closureMaxSeconds;
+    this.walkingSpeedMps = graph.walkingSpeedMps ?? 1.3;
+    if (!Number.isFinite(this.walkingSpeedMps) || this.walkingSpeedMps <= 0) throw new RangeError('Invalid graph walking speed.');
     for (const [id, edge] of graph.edges) {
       if (!Number.isFinite(edge.distanceMeters) || edge.distanceMeters < 0) throw new RangeError(`Invalid baseline distance for ${id}.`);
       this.#events.set(id, []);
@@ -88,7 +92,69 @@ export class DynamicEdgeCosts {
     });
     // Validation completes before modifying any edge; one immutable observation is shared.
     for (const id of ids) this.#events.get(id).push(event);
+    this.#attachments.set(event.id, new Set(ids));
     return event;
+  }
+
+  /** Updates every directed attachment of a shared physical observation. */
+  adjustEvent(eventId, action, time = this.now()) {
+    validTime(time);
+    if (!['clearance', 'avoidance'].includes(action)) throw new TypeError('Unknown evidence action.');
+    const ids = this.#attachments.get(eventId);
+    if (!ids) return null;
+    const event = this.#events.get(ids.values().next().value).find((item) => item.id === eventId);
+    if (this.#expired(event, time)) { this.removeEvent(eventId); return null; }
+    // Passage geometry cannot halve Infinity, and does not override explicit closure policy.
+    if (event.initial_penalty === Infinity || time < (event.last_evidence_timestamp ?? event.timestamp)) return null;
+    const updated = Object.freeze({ ...event,
+      timestamp: action === 'clearance' ? event.timestamp - event.half_life : time,
+      last_evidence_timestamp: time,
+    });
+    for (const id of ids) this.#events.set(id, this.#events.get(id).map((item) => item.id === eventId ? updated : item));
+    // Clearance can move an event past the pruning threshold immediately.
+    if (this.#expired(updated, time)) this.removeEvent(eventId);
+    return updated;
+  }
+
+  removeEvent(eventId) {
+    const ids = this.#attachments.get(eventId);
+    if (!ids) return false;
+    for (const id of ids) this.#events.set(id, this.#events.get(id).filter((event) => event.id !== eventId));
+    this.#attachments.delete(eventId);
+    return true;
+  }
+
+  setCongestion(edgeIds, { walkingSpeedMps = 0.7, timestamp = this.now(), durationSeconds = 60 } = {}) {
+    const ids = [...new Set(Array.isArray(edgeIds) ? edgeIds : [edgeIds])];
+    if (!ids.length) throw new Error('At least one edge is required.');
+    ids.forEach((id) => this.#assertEdge(id));
+    validTime(timestamp);
+    if (!Number.isFinite(walkingSpeedMps) || walkingSpeedMps <= 0 || walkingSpeedMps > this.walkingSpeedMps) {
+      throw new RangeError('Congestion speed must be positive and no faster than baseline.');
+    }
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new RangeError('Congestion duration must be positive.');
+    const state = Object.freeze({ walkingSpeedMps, timestamp, expiresAt: timestamp + durationSeconds });
+    for (const id of ids) this.#congestion.set(id, state);
+    return state;
+  }
+
+  clearCongestion(edgeIds) {
+    const ids = [...new Set(Array.isArray(edgeIds) ? edgeIds : [edgeIds])];
+    ids.forEach((id) => this.#assertEdge(id));
+    for (const id of ids) this.#congestion.delete(id);
+  }
+
+  getCongestion(edgeId, time = this.now()) {
+    this.#assertEdge(edgeId);
+    validTime(time);
+    const state = this.#congestion.get(edgeId);
+    if (state && time >= state.expiresAt) this.#congestion.delete(edgeId);
+    return state && time >= state.timestamp && time < state.expiresAt ? state : null;
+  }
+
+  baselineCostSeconds(edgeId, time = this.now()) {
+    const speed = this.getCongestion(edgeId, time)?.walkingSpeedMps ?? this.walkingSpeedMps;
+    return this.graph.edges.get(edgeId).distanceMeters / speed;
   }
 
   #expired(event, time) {
@@ -102,6 +168,12 @@ export class DynamicEdgeCosts {
   #pruneEdge(edgeId, time) {
     const events = this.#events.get(edgeId);
     const retained = events.filter((event) => !this.#expired(event, time));
+    for (const event of events) {
+      if (!this.#expired(event, time)) continue;
+      const ids = this.#attachments.get(event.id);
+      ids.delete(edgeId);
+      if (!ids.size) this.#attachments.delete(event.id);
+    }
     if (retained.length !== events.length) this.#events.set(edgeId, retained);
     return events.length - retained.length;
   }
@@ -110,7 +182,10 @@ export class DynamicEdgeCosts {
   prune(time = this.now()) {
     validTime(time);
     let removed = 0;
-    for (const id of this.#events.keys()) removed += this.#pruneEdge(id, time);
+    for (const id of this.#events.keys()) {
+      removed += this.#pruneEdge(id, time);
+      this.getCongestion(id, time);
+    }
     return removed;
   }
 
@@ -118,7 +193,9 @@ export class DynamicEdgeCosts {
     this.#assertEdge(edgeId);
     validTime(time);
     this.#pruneEdge(edgeId, time);
-    let cost = this.graph.edges.get(edgeId).distanceMeters;
+    // Convert the effective traversal time back to virtual meters before adding penalties.
+    const speed = this.getCongestion(edgeId, time)?.walkingSpeedMps ?? this.walkingSpeedMps;
+    let cost = this.graph.edges.get(edgeId).distanceMeters * (this.walkingSpeedMps / speed);
     for (const event of this.#events.get(edgeId)) {
       const age = time - event.timestamp;
       if (age < 0) continue; // A future observation is inactive until its occurrence time.
