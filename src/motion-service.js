@@ -2,11 +2,12 @@ import { SensorPipeline } from './sensor-pipeline.js';
 
 /** Call start() directly from a user gesture. No network requests are made. */
 export class MotionService {
-  constructor({ config, onCandidate = () => {}, onStatus = () => {}, window: target = globalThis.window } = {}) {
+  constructor({ config, onCandidate = () => {}, onStatus = () => {}, onSamples = () => {}, window: target = globalThis.window } = {}) {
     this.target = target;
     this.pipeline = new SensorPipeline(config);
     this.onCandidate = onCandidate;
     this.onStatus = onStatus;
+    this.onSamples = onSamples;
     this.running = false;
     this.starting = false;
     this.generation = 0;
@@ -18,6 +19,7 @@ export class MotionService {
         rotationRate: event.rotationRate,
       });
       if (result.droppedReason) this.onStatus({ state: 'sample-dropped', reason: result.droppedReason });
+      if (result.samples?.length) this.onSamples(result.samples);
       for (const candidate of result.candidates) this.onCandidate(candidate);
     };
     this.handleVisibility = () => this.pipeline.reset();

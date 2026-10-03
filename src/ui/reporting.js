@@ -2,7 +2,7 @@ import { validateCoordinate } from '../routing/geo.js';
 
 export const INCIDENT_CATEGORIES = Object.freeze({
   closure: Object.freeze({ label: 'Road Closed / Impassable', icon: 'closed', event_type: 'MANUAL_CLOSURE', initial_penalty: Infinity, half_life: 14400 }),
-  hazard: Object.freeze({ label: 'Hazard / Obstacle', icon: 'hazard', event_type: 'MANUAL_HAZARD', initial_penalty: 300, half_life: 14400 }),
+  hazard: Object.freeze({ label: 'Hazard / Obstacle', icon: 'hazard', event_type: 'MANUAL_HAZARD', initial_penalty: 300, half_life: 3600 }),
   uneven: Object.freeze({ label: 'Slow / Uneven Ground', icon: 'uneven', event_type: 'MUD', initial_penalty: 100, half_life: 1800 }),
 });
 

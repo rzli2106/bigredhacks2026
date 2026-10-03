@@ -1,0 +1,9 @@
+.git
+node_modules
+dist
+artifacts
+.env
+.env.*.local
+/ios
+/android
+.pathpulse-local.json

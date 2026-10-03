@@ -1,9 +1,11 @@
 import { validateCoordinate } from './geo.js';
 
 export const EVENT_DEFAULTS = Object.freeze({
+  SENSOR_SHOCK: Object.freeze({ initial_penalty: 50, half_life: 900 }),
+  TERRAIN_DRAG: Object.freeze({ initial_penalty: 100, half_life: 1800 }),
   POTHOLE: Object.freeze({ initial_penalty: 50, half_life: 1800 }),
   MUD: Object.freeze({ initial_penalty: 100, half_life: 1800 }),
-  MANUAL_HAZARD: Object.freeze({ initial_penalty: 300, half_life: 14400 }),
+  MANUAL_HAZARD: Object.freeze({ initial_penalty: 300, half_life: 3600 }),
   MANUAL_CLOSURE: Object.freeze({ initial_penalty: Infinity, half_life: 14400 }),
 });
 

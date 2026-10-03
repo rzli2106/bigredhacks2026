@@ -6,7 +6,8 @@ const boxDistanceSquared = (box, x, y) => {
   return dx * dx + dy * dy;
 };
 
-// Packed binary bounding-box tree, with segment geometry only in leaves.
+// Packed KD tree partitions primitive centroids on the widest axis. Subtree
+// geometry bounds make pruning conservative even when a long segment crosses a split.
 function pack(items) {
   if (!items.length) return null;
   const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
@@ -20,7 +21,7 @@ function pack(items) {
   const axis = box.maxX - box.minX >= box.maxY - box.minY ? 'X' : 'Y';
   items.sort((a, b) => (a[`min${axis}`] + a[`max${axis}`]) - (b[`min${axis}`] + b[`max${axis}`]));
   const middle = Math.floor(items.length / 2);
-  return { ...box, children: [pack(items.slice(0, middle)), pack(items.slice(middle))] };
+  return { ...box, axis, split: (items[middle][`min${axis}`]+items[middle][`max${axis}`])/2, children: [pack(items.slice(0, middle)), pack(items.slice(middle))] };
 }
 
 /** Static local-zone index. Rebuild after graph geometry changes. */

@@ -1,19 +1,40 @@
 {
-  "name": "micro-hazard-sensing",
+  "name": "pathpulse",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/serve.js",
+    "dev": "node scripts/dev.js",
     "map:refresh": "node scripts/refresh-cornell.js",
     "test": "node --test",
     "routing:benchmark": "node scripts/benchmark-routing.js",
-    "routing:ingest": "node scripts/ingest-routing.js"
+    "routing:ingest": "node scripts/ingest-routing.js",
+    "build": "node scripts/build.js",
+    "start": "node backend/main.js",
+    "backend": "node backend/main.js",
+    "sync:local": "node scripts/sync-local.js",
+    "simulate": "node backend/simulator-cli.js",
+    "native:sync": "npm run build && npx cap sync",
+    "native:ios": "npm run build && npx cap add ios",
+    "native:android": "npm run build && npx cap add android",
+    "native:configure": "node scripts/configure-native.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "leaflet": "^1.9.4"
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/geolocation": "^7.1.8",
+    "leaflet": "^1.9.4",
+    "pathpulse-health": "file:./native/pathpulse-health",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/ios": "^7.6.9",
+    "esbuild": "^0.28.2"
   }
 }

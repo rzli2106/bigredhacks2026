@@ -1,0 +1,1 @@
+{"appId":"com.pathpulse.app","appName":"PathPulse","webDir":"dist","server":{"appStartPath":"/mobile.html","androidScheme":"https"},"android":{"allowMixedContent":false},"ios":{"contentInset":"automatic"}}

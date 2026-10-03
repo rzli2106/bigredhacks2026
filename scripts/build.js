@@ -1,0 +1,14 @@
+import { build } from 'esbuild';
+import { mkdir, cp, readFile, writeFile, rm } from 'node:fs/promises';
+import { loadEnvironment } from './env.js';
+await loadEnvironment();
+await rm(new URL('../dist',import.meta.url),{recursive:true,force:true});
+await mkdir(new URL('../dist/assets',import.meta.url),{recursive:true});
+await build({entryPoints:{app:'src/ui/app.js',mobile:'frontend/mobile.js'},bundle:true,format:'esm',outdir:'dist/assets',target:'es2022',minify:process.env.NODE_ENV==='production',sourcemap:process.env.NODE_ENV!=='production'});
+await cp('public','dist/public',{recursive:true});
+await cp('node_modules/leaflet/dist','dist/vendor/leaflet',{recursive:true});
+await cp('src/ui/styles.css','dist/assets/styles.css');await cp('frontend/mobile.css','dist/assets/mobile.css');
+const index=(await readFile('index.html','utf8')).replace('/src/ui/app.js','/assets/app.js').replaceAll('/node_modules/leaflet/dist/','/vendor/leaflet/').replace('/src/ui/styles.css','/assets/styles.css');
+await writeFile('dist/index.html',index);await cp('frontend/mobile.html','dist/mobile.html');
+await writeFile('dist/runtime-config.js',`window.PathPulseConfig=${JSON.stringify({apiBase:process.env.PUBLIC_API_URL??'',wsUrl:process.env.PUBLIC_WS_URL??'',mobileUrl:process.env.PUBLIC_MOBILE_URL??''})};\n`);
+console.log('Built observer dashboard and /mobile into dist/.');

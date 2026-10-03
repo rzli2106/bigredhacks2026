@@ -62,7 +62,7 @@ export class SensorPipeline {
     const angularSpeed = Math.hypot(rotationRate.alpha, rotationRate.beta, rotationRate.gamma) * Math.PI / 180;
     // Gate raw events before downsampling so brief rotations cannot disappear.
     if (angularSpeed > this.config.rotationLimitRadS) return drop('tumble');
-    const current = { timestamp, magnitude: Math.hypot(acceleration.x, acceleration.y, acceleration.z) };
+    const current = { timestamp, magnitude: Math.hypot(acceleration.x, acceleration.y, acceleration.z), angularSpeed };
     if (!Number.isFinite(current.magnitude)) return drop('invalid-acceleration');
     if (this.raw && timestamp - this.raw.timestamp > this.config.maxGapMs) {
       drop('sensor-gap');
@@ -78,6 +78,7 @@ export class SensorPipeline {
       this.consume({
         timestamp: this.nextTimestamp,
         magnitude: lerp(this.raw.magnitude, current.magnitude, fraction),
+        angularSpeed: Math.max(this.raw.angularSpeed, current.angularSpeed),
       }, result);
       this.nextTimestamp += this.config.samplePeriodMs;
     }
@@ -147,6 +148,7 @@ export class SensorPipeline {
       peakAcceleration: points[peakIndex].magnitude,
       baselineAcceleration: baseline,
       peakJerk,
+      peakAngularSpeed: Math.max(...points.map(point => point.angularSpeed ?? 0)),
       fwhmMs,
       samplePeriodMs: this.config.samplePeriodMs,
     };

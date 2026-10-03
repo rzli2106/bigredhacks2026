@@ -1,8 +1,11 @@
 import { EdgeIndex, DynamicEdgeCosts, buildWalkingGraph, routeBetweenPins, haversine } from '../routing/index.js';
 import { CORNELL_BOUNDS, CORNELL_VIEW, CORNELL_PLACES, withinCornell } from './cornell.js';
-import { captureDeviceLocation, INCIDENT_CATEGORIES, incidentAppearance, submitIncident } from './reporting.js';
+import { captureDeviceLocation, INCIDENT_CATEGORIES, incidentAppearance } from './reporting.js';
 import { icon, fillIcons } from './icons.js';
 import { fetchCampus } from './campus-data.js';
+import {ScenarioRunner} from '../../backend/simulator.js';
+import {configuration,request,subscribe} from '../../frontend/connection.js';
+import QRCode from 'qrcode';
 
 const $ = (selector) => document.querySelector(selector);
 fillIcons();
@@ -27,6 +30,8 @@ const endpointLabels = { origin: '', destination: '' };
 let snapshotVersion, viewIntent = 'campus', nearbyGeneration = 0, locateGeneration = 0;
 let reportLocation = null, reportGeneration = 0, picking = null, loadingArea = false, areaPromise;
 let toastTimer, undoAction, locationMarker, locationCircle;
+let mode='live',runner,lastLiveSnapshot,liveSignature='',pairingLink='',serverOffset=0;
+const clock=()=>mode==='simulation'&&runner?runner.baseTime+runner.offset:Date.now()/1000+serverOffset;
 const reports = new Map();
 const pins = new Map();
 const latitudeLongitude = (coordinate) => [coordinate.lat, coordinate.lon ?? coordinate.lng];
@@ -40,10 +45,9 @@ function notify(message, undo = null) {
   toastTimer = setTimeout(() => { $('#toast').hidden = true; undoAction = null; }, undo ? 15000 : 8000);
 }
 $('#dismiss-toast').addEventListener('click', () => { $('#toast').hidden = true; undoAction = null; clearTimeout(toastTimer); });
-$('#undo').addEventListener('click', () => {
+$('#undo').addEventListener('click', async () => {
   const action = undoAction; undoAction = null;
-  action?.();
-  notify('Change undone.');
+  const result=await action?.();if(result!==false)notify('Change undone.');
 });
 
 function closeDialog(id) { $(`#${id}`).close(); }
@@ -100,9 +104,9 @@ function stopPicking() {
 function startPicking(kind) {
   if (!graph) { notify('Walking paths are still loading. Use Campus map to retry if loading fails.'); return; }
   stopPicking(); locateGeneration++; picking = kind;
-  $('#pick-banner span').textContent = kind === 'report' ? 'Tap the map to place your report.' : `Tap the map to set your ${kind === 'origin' ? 'starting point' : 'destination'}.`;
+  $('#pick-banner span').textContent = kind === 'simulation' ? 'Tap a walking path to inject the selected signal.' : kind === 'report' ? 'Tap the map to place your report.' : `Tap the map to set your ${kind === 'origin' ? 'starting point' : 'destination'}.`;
   $('#pick-banner').hidden = false;
-  if (kind !== 'report') $(`#${kind}`).setAttribute('aria-pressed','true');
+  if (['origin','destination'].includes(kind)) $(`#${kind}`).setAttribute('aria-pressed','true');
   $('#map').classList.add('placing-pin');
   $('#map').scrollIntoView({ block: 'center', behavior: reducedMotion.matches ? 'instant' : 'smooth' });
   $('#map').focus({ preventScroll: true });
@@ -136,7 +140,6 @@ for (const kind of ['origin','destination']) $(`#${kind}`).addEventListener('cli
 
 function setGraph(nextGraph, version) {
   // Prepare a usable graph before replacing any visible state.
-  const firstLoad = !graph;
   const nextIndex = new EdgeIndex(nextGraph);
   const defaults = CORNELL_PLACES.slice(0,2).map((place) => nextIndex.nearest(place, { maxDistanceMeters: 40 }));
   if (defaults.some((match) => !match)) throw new Error('The snapshot does not contain the central Cornell walking network.');
@@ -157,35 +160,20 @@ function setGraph(nextGraph, version) {
       routeEndpoints[kind] = defaults[i].coordinate; endpointLabels[kind] = CORNELL_PLACES[i].name;
     }
   }
-  if (firstLoad) seedReports();
+  runner?.dispose(); runner=new ScenarioRunner(graph); if(lastLiveSnapshot) applySnapshot(lastLiveSnapshot,true);
   renderIncidents(); renderEndpoints(); renderRoute();
   $('#area-name').textContent = 'Cornell, Ithaca';
   $('#data-badge').innerHTML = '<span class="status-dot"></span>Cornell campus<span class="badge-divider"></span><span>OpenStreetMap</span>';
-  $('#report-caption').textContent = 'Sample incidents + your reports · this session';
-  $('#status-text').textContent = `Real Cornell paths · OSM snapshot ${version.slice(0,10)} · reports saved in this session`;
+  $('#report-caption').textContent = mode==='simulation'?'Fictional simulation incidents':'Shared phone and manual reports';
+  $('#status-text').textContent = `Real Cornell paths · OSM snapshot ${version.slice(0,10)} · shared live telemetry`;
 }
 
-function seedReports() {
-  const now = Date.now() / 1000;
-  const examples = [['closure', CORNELL_PLACES[3], 4 * 60], ['hazard', CORNELL_PLACES[0], 19 * 60], ['uneven', CORNELL_PLACES[4], 42 * 60]];
-  let added = 0;
-  for (const [category, place, age] of examples) {
-    if ([...reports.values()].some((item) => item.source === 'sample' && item.category === category)) continue;
-    const match = index.nearest(place, { maxDistanceMeters: 40 });
-    if (!match) continue;
-    const definition = INCIDENT_CATEGORIES[category];
-    const event = costs.recordEvent(match.edgeIds, { ...definition, timestamp: now - age,
-      coordinate: { lat: match.coordinate.lat, lng: match.coordinate.lon } });
-    reports.set(event.id, { event, edgeIds: match.edgeIds, category, source: 'sample', locationName: `Near ${place.name} · sample` });
-    added++;
-  }
-  return added;
+function seedReports(){
+  switchMode('simulation');let added=0;
+  for(const [place,metric] of [[CORNELL_PLACES[3],'MANUAL_CLOSURE'],[CORNELL_PLACES[0],'MANUAL_HAZARD'],[CORNELL_PLACES[4],'TERRAIN_DRAG']]){const point=index.nearest(place).coordinate;if(runner.engine.events().some(event=>event.event_type===metric&&haversine({lat:event.coordinate.lat,lon:event.coordinate.lng},point)<1))continue;runner.inject(point,metric);added++;}
+  applySnapshot(runner.snapshot(),true);return added;
 }
-$('#add-samples').addEventListener('click', () => {
-  if (!graph) { notify('Load Cornell walking paths first.'); return; }
-  const added = seedReports(); renderIncidents(); renderRoute();
-  notify(added ? `${added} sample incidents added on actual campus paths.` : 'All three sample incidents are already on the map.');
-});
+$('#add-samples').addEventListener('click',()=>{if(!graph)return notify('Load Cornell paths first.');const added=seedReports();notify(added?`${added} fictional incidents added in Simulation.`:'All three sample incidents are already active.');});
 function renderRoute(fit = false) {
   if (!graph) return;
   const { origin, destination } = routeEndpoints;
@@ -193,7 +181,7 @@ function renderRoute(fit = false) {
   if (!origin || !destination) {
     $('#route-summary').hidden = true; $('#route-error').hidden = true; return;
   }
-  const route = routeBetweenPins(graph,index,origin,destination,{ costs });
+  const route = routeBetweenPins(graph,index,origin,destination,{ costs, timestamp:clock() });
   $('#route-error').hidden = route.status === 'ok'; $('#route-summary').hidden = route.status !== 'ok';
   if (route.status !== 'ok') {
     $('#route-error').textContent = route.status === 'off-path' ? 'Move your pin closer to a Cornell walking path.' : 'No connected walking route is available. Try a nearby path or check active closures.';
@@ -231,7 +219,7 @@ $('#swap-route').addEventListener('click', () => {
 function allEvents() {
   const events = new Map();
   for (const items of costs.EdgeEventList.values()) for (const event of items) events.set(event.id, event);
-  return [...events.values()].filter((event) => event.timestamp <= Date.now() / 1000);
+  return [...events.values()].filter((event) => event.timestamp <= clock());
 }
 function ageLabel(timestamp, now) {
   const minutes = Math.max(0, Math.floor((now - timestamp) / 60));
@@ -239,6 +227,8 @@ function ageLabel(timestamp, now) {
 }
 function definitionFor(event) {
   const metadata = reports.get(event.id);
+  if(event.event_type==='SENSOR_SHOCK')return {...INCIDENT_CATEGORIES.hazard,label:'Sensor shock'};
+  if(event.event_type==='TERRAIN_DRAG')return {...INCIDENT_CATEGORIES.uneven,label:'Terrain drag'};
   return INCIDENT_CATEGORIES[metadata?.category ?? (event.event_type === 'MANUAL_CLOSURE' ? 'closure' : event.event_type === 'MUD' ? 'uneven' : 'hazard')];
 }
 function reportPopup(event) {
@@ -246,31 +236,13 @@ function reportPopup(event) {
   const definition = definitionFor(event);
   const container = document.createElement('div');
   const heading = document.createElement('h3'); heading.textContent = definition.label;
-  const detail = document.createElement('p'); detail.textContent = metadata?.source === 'sample' ? 'Fictional sample incident on a real Cornell path.' : 'Reported in this session.';
-  const age = document.createElement('p'); age.textContent = `${ageLabel(event.timestamp, Date.now() / 1000)} · ${event.initial_penalty === Infinity ? 'Path is impassable' : 'Influences walking routes'}`;
+  const detail = document.createElement('p'); detail.textContent = mode==='simulation'?'Fictional simulation signal on a real Cornell path.':`Shared ${metadata?.source??'phone'} report.`;
+  const age = document.createElement('p'); age.textContent = `${ageLabel(event.timestamp, clock())} · ${event.initial_penalty === Infinity ? 'Path is impassable' : 'Influences walking routes'}`;
   const actions = document.createElement('div'); actions.className = 'popup-actions';
   const confirm = document.createElement('button'); confirm.textContent = 'Still here';
-  confirm.addEventListener('click', () => {
-    const now = Date.now() / 1000;
-    if (event.event_type === 'MANUAL_CLOSURE') {
-      const renewed = costs.recordEvent(metadata.edgeIds, { ...event, timestamp: now });
-      costs.removeEvent(event.id); reports.delete(event.id); reports.set(renewed.id, { ...metadata, event: renewed });
-    } else costs.adjustEvent(event.id, 'avoidance', now);
-    map.closePopup(); renderIncidents(); renderRoute(); notify('Report refreshed. Thanks for the heads-up.');
-  });
+  confirm.addEventListener('click',()=>verifyReport(metadata,'confirm'));
   const resolve = document.createElement('button'); resolve.textContent = 'Mark resolved';
-  resolve.addEventListener('click', () => {
-    const owner = costs;
-    const current = allEvents().find((item) => item.id === event.id);
-    if (!current) return;
-    costs.removeEvent(event.id); reports.delete(event.id);
-    map.closePopup(); renderIncidents(); renderRoute();
-    notify('Report marked resolved. Route updated.', () => {
-      if (costs !== owner) return;
-      const restored = costs.recordEvent(metadata.edgeIds, current);
-      reports.set(restored.id, { ...metadata, event: restored }); renderIncidents(); renderRoute();
-    });
-  });
+  resolve.addEventListener('click',()=>verifyReport(metadata,'resolve'));
   actions.append(confirm, resolve); container.append(heading, detail, age, actions);
   return container;
 }
@@ -281,7 +253,7 @@ function openReport(id) {
   marker.openPopup();
 }
 function renderIncidents() {
-  const now = Date.now() / 1000;
+  const now = clock();
   costs.prune(now);
   const events = allEvents().sort((a,b) => (b.initial_penalty === Infinity) - (a.initial_penalty === Infinity) || b.timestamp - a.timestamp);
   const activeIds = new Set(events.map((event) => event.id));
@@ -351,11 +323,12 @@ $('#choose-map-point').addEventListener('click', () => {
   closeDialog('report-dialog'); startPicking('report');
 });
 $('#cancel-pick').addEventListener('click', () => {
-  const previous = picking; stopPicking(); $(`#${previous === 'report' ? 'report-trigger' : previous ?? 'origin'}`).focus({ preventScroll: true });
+  const previous = picking; stopPicking(); $(`#${previous === 'simulation' ? 'inject-simulation' : previous === 'report' ? 'report-trigger' : previous ?? 'origin'}`).focus({ preventScroll: true });
 });
 map.on('click', ({ latlng }) => {
   if (!picking) return;
   const kind = picking, coordinate = { lat: latlng.lat, lon: latlng.lng };
+  if(kind==='simulation'){try{runner.inject(coordinate,$('#injection-type').value);stopPicking();applySnapshot(runner.snapshot(),true);notify('Simulation signal added.');}catch(error){notify(error.message);}return;}
   if (kind !== 'report') {
     if (setEndpoint(kind,coordinate)) { stopPicking(); notify(`${kind === 'origin' ? 'Starting point' : 'Destination'} pin placed. You can drag it to adjust.`); }
     return;
@@ -371,19 +344,15 @@ $('#map').addEventListener('keydown', (event) => {
   if (event.key === 'Escape') $('#cancel-pick').click();
   if (event.key === 'Enter') { event.preventDefault(); map.fire('click', { latlng: map.getCenter() }); }
 });
-for (const button of document.querySelectorAll('[data-category]')) button.addEventListener('click', () => {
-  try {
-    const saved = submitIncident({ category: button.dataset.category, location: reportLocation, index, costs });
-    reports.set(saved.event.id, saved);
-    const owner = costs;
-    closeDialog('report-dialog'); renderIncidents(); renderRoute();
-    notify('Report added. Your walking route is updated.', () => {
-      if (costs !== owner) return;
-      costs.removeEvent(saved.event.id); reports.delete(saved.event.id); renderIncidents(); renderRoute();
-    });
-  } catch (error) {
-    $('#report-location-error').textContent = error.message; $('#report-location-error').hidden = false;
-  }
+for(const button of document.querySelectorAll('[data-category]')) button.addEventListener('click',async()=>{
+  button.disabled=true;
+  try{
+    if(!reportLocation)throw new Error('Choose a location first.');if(Date.now()/1000-reportLocation.timestamp>120)throw new Error('Location expired. Close this report and capture it again.');
+    const metric={closure:'MANUAL_CLOSURE',hazard:'MANUAL_HAZARD',uneven:'TERRAIN_DRAG'}[button.dataset.category];
+    if(mode==='simulation'){const result=runner.inject(reportLocation,metric);applySnapshot(runner.snapshot(),true);closeDialog('report-dialog');notify('Simulation report added.',()=>{runner.verify(result.id,'resolve');applySnapshot(runner.snapshot(),true);});}
+    else{const result=await sendManual(reportLocation,metric);closeDialog('report-dialog');notify('Report shared. Every observer receives the update.',()=>verifyReport({remoteId:result.id},'resolve'));}
+  }catch(error){$('#report-location-error').textContent=error.message;$('#report-location-error').hidden=false;}
+  finally{if(reportLocation)setReportLocation(reportLocation);}
 });
 
 function showLocation(location) {
@@ -415,15 +384,8 @@ async function reloadCampus() {
     if (!graph || snapshotVersion !== data.waymark.fetchedAt) {
       const nextGraph = buildWalkingGraph(data);
       if (!nextGraph.edges.size) throw new Error('The Cornell snapshot has no walking paths.');
-      // Keep reports attached to their real coordinates when a refreshed snapshot changes edge IDs.
-      const savedReports = graph ? allEvents().map((event) => ({ ...reports.get(event.id), event })) : [];
+      switchMode('live');
       setGraph(nextGraph,data.waymark.fetchedAt);
-      for (const item of savedReports) {
-        const match = index.nearest({ lat: item.event.coordinate.lat, lon: item.event.coordinate.lng }, { maxDistanceMeters: 40 });
-        if (!match) continue;
-        const event = costs.recordEvent(match.edgeIds,item.event);
-        reports.set(event.id,{ ...item,event,edgeIds: match.edgeIds });
-      }
       renderIncidents(); renderRoute();
     }
     $('#map-error').hidden = Boolean(failedTiles === 0);
@@ -466,9 +428,46 @@ for (const place of CORNELL_PLACES) {
   });
   $('#campus-places').append(button);
 }
+function applySnapshot(snapshot,force=false){
+  if(!graph)return;
+  if(mode==='live')serverOffset=snapshot.time-Date.now()/1000;
+  const signature=JSON.stringify(snapshot.events.map(event=>[event.id,event.timestamp,event.initial_penalty,event.edge_ids]).concat((snapshot.edges??[]).filter(edge=>edge.congestion).map(edge=>[edge.id,edge.congestion])));
+  if(mode==='live'&&!force&&signature===liveSignature){renderIncidents();renderRoute();return;}
+  if(mode==='live')liveSignature=signature;
+  costs?.dispose();costs=new DynamicEdgeCosts(graph,{now:clock,cleanupIntervalMs:0});
+  reports.clear();pins.clear();hazardLayer.clearLayers();
+  for(const remote of snapshot.events){
+    const valid=remote.edge_ids.filter(id=>graph.edges.has(id));if(!valid.length)continue;
+    const event=costs.recordEvent(valid,{event_type:remote.metric_type,initial_penalty:remote.blocked?Infinity:remote.initial_penalty,half_life:remote.half_life,timestamp:remote.timestamp,coordinate:remote.coordinate,closure_max:14400});
+    reports.set(event.id,{event,edgeIds:valid,remoteId:remote.id,category:remote.metric_type==='MANUAL_CLOSURE'?'closure':remote.metric_type==='TERRAIN_DRAG'?'uneven':'hazard',source:mode==='simulation'?'sample':remote.source,locationName:mode==='simulation'?'Simulation':remote.source.replaceAll('_',' ')});
+  }
+  for(const edge of snapshot.edges??[])if(edge.congestion)costs.setCongestion([edge.id],{walkingSpeedMps:edge.congestion.walkingSpeedMps,timestamp:edge.congestion.timestamp,durationSeconds:edge.congestion.expiresAt-edge.congestion.timestamp});
+  renderIncidents();renderRoute();
+  if(mode==='simulation'){$('#simulation-time').value=String(runner.offset/60);$('#simulation-minute').textContent=`${(runner.offset/60).toFixed(runner.offset%60?1:0)} min`;}
+}
+function switchMode(next){
+  if(!graph)return;stopPicking();mode=next;$('#mode-live').setAttribute('aria-pressed',String(next==='live'));$('#mode-simulation').setAttribute('aria-pressed',String(next==='simulation'));$('#simulation-panel').hidden=next!=='simulation';$('#report-caption').textContent=next==='simulation'?'Fictional simulation incidents':'Shared phone and manual reports';
+  applySnapshot(next==='simulation'?runner.snapshot():lastLiveSnapshot??{time:Date.now()/1000,events:[]},true);
+}
+$('#mode-live').onclick=()=>switchMode('live');$('#mode-simulation').onclick=()=>switchMode('simulation');
+function showResults(){const rows=runner.results.map(result=>{const row=document.createElement('div');row.className=`scenario-result ${result.passed?'passed':'failed'}`;const title=document.createElement('strong');title.textContent=`${result.passed?'PASS':'FAIL'} · Scenario ${result.scenario}`;row.append(title);for(const check of result.checks){const text=document.createElement('p');text.textContent=`${check.passed?'✓':'×'} ${check.name}${check.detail?` (${check.detail})`:''}`;row.append(text);}return row;});$('#scenario-results').replaceChildren(...rows);}
+function showScenario(){const snapshot=runner.snapshot();for(const kind of ['origin','destination']){const node=kind==='origin'?snapshot.corridor.from:snapshot.corridor.to;routeEndpoints[kind]={lat:node.lat,lon:node.lon};endpointLabels[kind]=kind==='origin'?'Campus path X · start':'Campus path X · end';}renderEndpoints();applySnapshot(snapshot,true);renderRoute(true);showResults();}
+function runScenario(name){if(!graph)return;switchMode('simulation');runner.run(name);showScenario();}
+document.querySelectorAll('[data-scenario]').forEach(button=>button.onclick=()=>runScenario(button.dataset.scenario));
+$('#run-all').onclick=()=>{if(!graph)return;switchMode('simulation');runner.results=[];for(const name of ['A','B','C','D'])runner.run(name);showScenario();};
+$('#reset-simulation').onclick=()=>{runner.reset();runner.results=[];applySnapshot(runner.snapshot(),true);showResults();notify('Simulation reset.');};
+$('#simulation-time').oninput=()=>{runner.seek(Number($('#simulation-time').value));applySnapshot(runner.snapshot(),true);};
+$('#inject-simulation').onclick=()=>startPicking('simulation');
+async function createPair(){const data=await request('/api/pairing',{method:'POST',token:$('#observer-key').value.trim(),body:{mobile_url:configuration().mobile}});pairingLink=data.url;return data;}
+async function sendManual(point,metric){const result=await request('/api/telemetry/manual',{method:'POST',token:$('#observer-key').value.trim(),body:{device_id:'observer-manual',event_id:crypto.randomUUID(),lat:point.lat,lng:point.lon,accuracy_meters:point.accuracyMeters,source:'manual',metric_type:metric,severity:1,timestamp:Date.now()/1000}});lastLiveSnapshot=await request('/api/telemetry/snapshot');if(mode==='live')applySnapshot(lastLiveSnapshot);return result;}
+async function verifyReport(metadata,action){try{if(mode==='simulation'){runner.verify(metadata.remoteId,action);applySnapshot(runner.snapshot(),true);}else{await request('/api/telemetry/verify',{method:'POST',token:$('#observer-key').value.trim(),body:{id:metadata.remoteId,action}});lastLiveSnapshot=await request('/api/telemetry/snapshot');applySnapshot(lastLiveSnapshot);}map.closePopup();notify(action==='confirm'?'Report refreshed.':'Report marked resolved.');return true;}catch(error){notify(error.message);return false;}}
+$('#connect-device').onclick=()=>{$('#pair-error').hidden=true;$('#connect-dialog').showModal();};
+$('#create-pairing').onclick=async()=>{const button=$('#create-pairing');button.disabled=true;$('#pair-error').hidden=true;try{const data=await createPair();await QRCode.toCanvas($('#pairing-qr'),data.url,{width:240,margin:2,errorCorrectionLevel:'M'});$('#pairing-qr').hidden=false;$('#copy-pairing').hidden=false;$('#pairing-link').hidden=false;$('#pair-link-label').hidden=false;$('#pairing-link').value=data.url;$('#pair-expiry').textContent=`Expires ${new Date(data.expires_at*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}. Scan only on a device you trust.`;}catch(error){$('#pair-error').textContent=error.message;$('#pair-error').hidden=false;}finally{button.disabled=false;}};
+$('#copy-pairing').onclick=async()=>{try{await navigator.clipboard.writeText(pairingLink);$('#copy-status').textContent='Pairing link copied.';}catch{$('#copy-status').textContent='Clipboard is unavailable. Select and copy the link above, or scan the QR.';}};
+const unsubscribe=subscribe(snapshot=>{lastLiveSnapshot=snapshot;$('#device-count').textContent=String(snapshot.connected_devices??0);if(mode==='live')applySnapshot(snapshot);},status=>$('#stream-status').textContent=status);
 loadArea().catch((error) => { $('#map-error').hidden = false; $('#map-error').textContent = error.message; });
 const refresh = setInterval(() => { if (costs) { renderIncidents(); renderRoute(); } },10000);
-window.addEventListener('pagehide', () => { clearInterval(refresh); clearTimeout(toastTimer); costs?.dispose(); });
+window.addEventListener('pagehide', () => { unsubscribe();runner?.dispose(); clearInterval(refresh); clearTimeout(toastTimer); costs?.dispose(); });
 new ResizeObserver(() => {
   map.invalidateSize();
   if (picking) return;
