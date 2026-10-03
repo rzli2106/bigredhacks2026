@@ -30,11 +30,16 @@ export async function configureNative(root=process.cwd()){
     }
   }
   const variables=path('android/variables.gradle');
-  if(await exists(variables)){const text=await readFile(variables,'utf8');await writeFile(variables,text.replace(/minSdkVersion\s*=\s*\d+/,'minSdkVersion = 34'));result.android=true;}
+  if(await exists(variables)){
+    const text=await readFile(variables,'utf8');await writeFile(variables,text.replace(/minSdkVersion\s*=\s*\d+/,'minSdkVersion = 34').replace(/compileSdkVersion\s*=\s*\d+/,'compileSdkVersion = 36'));
+    const gradle=path('android/build.gradle');
+    if(await exists(gradle)){const build=await readFile(gradle,'utf8');await writeFile(gradle,build.replace(/com\.android\.tools\.build:gradle:[\d.]+/,'com.android.tools.build:gradle:8.10.1'));}
+    result.android=true;
+  }
   return result;
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const result=await configureNative();
   if(result.ios)console.log('iOS privacy strings, launch hook, and signing entitlements configured. Select your signing team and enable HealthKit + Background Delivery in Xcode.');
-  if(result.android)console.log('Android minimum SDK set to 34 (Android 14).');
+  if(result.android)console.log('Android minimum SDK 34, compile SDK 36, and AGP 8.10.1 configured for Health Connect.');
 }
