@@ -17,7 +17,7 @@ export class MobileNavigation {
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(this.map);
     L.control.zoom({ position: 'bottomright' }).addTo(this.map);
     this.routes = L.layerGroup().addTo(this.map); this.hazards = L.layerGroup().addTo(this.map);
-    this.searches = [new PlaceSearch($('#start-location'), { live: true, onSelect: () => this.cancelLocate() }), new PlaceSearch($('#destination-location'))];
+    this.searches = [new PlaceSearch($('#start-location'), { live: true, onSelect: () => { this.cancelLocate(); this.cancelPlanning(); } }), new PlaceSearch($('#destination-location'), { onSelect: () => this.cancelPlanning() })];
     this.pinTarget = 'end';
     $('#edit-route').onclick = () => { this.setPlannerOpen(true); $('#start-location').focus(); };
     $('#return-to-map').onclick = () => this.setPlannerOpen(false);
@@ -31,7 +31,8 @@ export class MobileNavigation {
     this.map.getContainer().addEventListener('keydown', this.pinKeyboard);
     $('#route-form').onsubmit = event => { event.preventDefault(); this.unlockAudio(); this.generate(); };
     $('#locate-me').onclick = () => this.locate();
-    $('#start-location').addEventListener('input', () => this.cancelLocate());
+    $('#start-location').addEventListener('input', () => { this.cancelLocate(); this.cancelPlanning(); });
+    $('#destination-location').addEventListener('input', () => this.cancelPlanning());
     $('#sound-toggle').onclick = () => {
       this.sound = !this.sound; $('#sound-toggle').textContent = this.sound ? 'Sound on' : 'Sound off';
       $('#sound-toggle').setAttribute('aria-pressed', String(this.sound)); if (this.sound) this.unlockAudio();
@@ -54,7 +55,7 @@ export class MobileNavigation {
     } else { $('#edit-route').focus(); }
   }
   beginPin(target) {
-    this.cancelLocate();
+    this.cancelPlanning(); this.cancelLocate();
     this.pinTarget = target; this.placingPin = true;
     for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', String(side === target));
     $('#pin-help').textContent = `Choose ${target === 'start' ? 'start' : 'destination'}: tap the map, or use arrow keys then Enter at the crosshair. Escape cancels.`;
@@ -64,6 +65,7 @@ export class MobileNavigation {
   placePin(point) {
     if ($('#route-planner').hidden && !this.placingPin) return;
     if (!withinCornell(point)) { this.notify(`Choose a ${this.pinTarget === 'start' ? 'starting point' : 'destination'} inside Cornell coverage.`); return; }
+    this.cancelPlanning();
     const start = this.pinTarget === 'start';
     $(start ? '#start-location' : '#destination-location').value = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
     if (start) this.markStart(point); else this.markDestination(point);
@@ -82,7 +84,7 @@ export class MobileNavigation {
     $('#locate-me').disabled = false; $('#locate-me').textContent = 'Locate me';
   }
   async locate() {
-    this.cancelLocate(); const id = this.locateId; this.unlockAudio();
+    this.cancelPlanning(); this.cancelLocate(); const id = this.locateId; this.unlockAudio();
     $('#locate-me').disabled = true; $('#locate-me').textContent = 'Locating…';
     try {
       await this.ensureLocation(); if (id !== this.locateId) return;
@@ -139,6 +141,10 @@ export class MobileNavigation {
   markDestination(point) {
     if (this.destinationMarker) this.destinationMarker.setLatLng([point.lat, point.lon]);
     else this.destinationMarker = window.L.circleMarker([point.lat, point.lon], { radius: 9, color: 'white', weight: 3, fillColor: '#192c3b', fillOpacity: 1 }).addTo(this.map).bindTooltip('Destination');
+  }
+  cancelPlanning() {
+    if (!$('#find-routes').disabled) return;
+    this.cancelRequest(); $('#route-status').textContent = 'Location selection changed. Tap Start Route.';
   }
   cancelRequest() { this.requestId++; this.planningId++; this.controller?.abort(); this.loading = false; $('#find-routes').disabled = false; }
   queueRefresh() {

@@ -37,3 +37,10 @@ test('cancelling pending GPS planning restores controls and ignores its late com
   assert.equal(elements.get('#find-routes').disabled,false);
   gps[0].resolve();await pending;assert.equal(routes.length,0);
 });
+
+test('editing the selection cancels a pending GPS plan and ignores its later result',async t=>{
+  const {navigation,gps,routes,elements}=fixture(t),pending=navigation.generate();
+  elements.get('#destination-location').value='Bailey Hall';navigation.cancelPlanning();
+  assert.equal(elements.get('#find-routes').disabled,false);assert.match(elements.get('#route-status').textContent,/selection changed/);
+  gps[0].resolve();await pending;assert.equal(routes.length,0);assert.equal(elements.get('#destination-location').value,'Bailey Hall');
+});

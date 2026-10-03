@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MobileNavigation } from '../frontend/mobile-navigation.js';
 function fixture(t) {
-  const elements = new Map(['route-status', 'route-options', 'route-update-warning', 'route-update-status', 'retry-route', 'accept-reroute'].map(id => [`#${id}`, { hidden: false, disabled: false, textContent: '', children: ['old choice'], replaceChildren() { this.children = []; } }]));
+  const elements = new Map(['find-routes','route-status', 'route-options', 'route-update-warning', 'route-update-status', 'retry-route', 'accept-reroute'].map(id => [`#${id}`, { hidden: false, disabled: false, textContent: '', children: ['old choice'], replaceChildren() { this.children = []; } }]));
   const oldDocument = globalThis.document, oldFetch = globalThis.fetch;
   globalThis.document = { querySelector: id => elements.get(id) };
   t.after(() => { globalThis.document = oldDocument; globalThis.fetch = oldFetch; });
   const nav = Object.create(MobileNavigation.prototype), active = { distanceMeters: 340, durationSeconds: 262 };
-  Object.assign(nav, { api: 'https://synthetic.test', requestId: 0, from: {}, to: {}, active, options: { alternative: {} }, renderAlert() {}, renderRoutes() {}, setPlannerOpen() {} });
+  Object.assign(nav, { api: 'https://synthetic.test', requestId: 0, planningId: 0, from: {}, to: {}, active, options: { alternative: {} }, renderAlert() {}, renderRoutes() {}, setPlannerOpen() {} });
   return { nav, elements, active };
 }
 test('failed background route update preserves the selected route and exposes recovery outside the planner', async t => {
@@ -64,4 +64,17 @@ test('successful retry returns focus to Edit route before hiding the focused ret
   globalThis.document.activeElement = elements.get('#retry-route');
   nav.routeUpdateError = ''; nav.renderUpdateState();
   assert.equal(focused, true); assert.equal(elements.get('#route-update-warning').hidden, true);
+});
+
+test('cancelled planning cannot select an old HTTP result or collapse the edited planner',async t=>{
+  const {nav,elements}=fixture(t);let finish,collapsed=false;
+  nav.active=null;nav.setPlannerOpen=()=>{collapsed=true;};elements.get('#find-routes').disabled=true;
+  globalThis.fetch=()=>new Promise(resolve=>{finish=resolve;});
+  const pending=nav.refresh(true);nav.cancelPlanning();
+  finish({ok:true,json:async()=>({direct:{status:'ok',hazard_ids:[]},alternative:null})});await pending;
+  assert.equal(nav.active,null);assert.equal(collapsed,false);assert.equal(elements.get('#find-routes').disabled,false);
+});
+test('changing a planner draft does not cancel the active walk background refresh',async t=>{
+  const {nav,elements}=fixture(t);elements.get('#find-routes').disabled=false;
+  const id=nav.requestId;nav.cancelPlanning();assert.equal(nav.requestId,id);
 });

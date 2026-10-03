@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MobileNavigation } from '../frontend/mobile-navigation.js';
 function fixture(t) {
-  const elements=new Map(['locate-me','start-location'].map(id=>[`#${id}`,{disabled:false,textContent:'Locate me',value:'Ho Plaza'}]));
+  const elements=new Map(['find-routes','locate-me','start-location'].map(id=>[`#${id}`,{disabled:false,textContent:'Locate me',value:'Ho Plaza'}]));
   const old=globalThis.document;globalThis.document={querySelector:id=>elements.get(id)};t.after(()=>{globalThis.document=old;});
   const pending=[],views=[],messages=[],nav=Object.create(MobileNavigation.prototype);
   Object.assign(nav,{unlockAudio(){},ensureLocation(){return new Promise((resolve,reject)=>pending.push({resolve,reject}));},getLocation:()=>({lat:42.4468,lon:-76.485}),map:{setView:p=>views.push(p)},notify:m=>messages.push(m)});
