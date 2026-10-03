@@ -76,6 +76,10 @@ export class MobileNavigation {
   setApi(api) {
     if (this.api === api) return;
     this.api = api; this.unsubscribe?.(); this.cancelRequest(); this.alerts = new RouteAlerts(); this.pending = [];
+    clearTimeout(this.refreshTimer); this.refreshScheduled = false;
+    this.from = null; this.to = null; this.snapshot = null; this.signature = null;
+    this.hazards.clearLayers();
+    $('#route-status').textContent = 'Connection changed. Tap Start Route to plan this walk.';
     this.options = null; this.active = null; this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true; this.setPlannerOpen(true); this.hideAlert(); this.connect();
   }
   connect() {

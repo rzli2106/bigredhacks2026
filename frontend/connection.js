@@ -39,11 +39,12 @@ export class RawMotionTransport {
 }
 export function subscribe(onSnapshot,onStatus=()=>{},{ws=configuration().ws}={}){
   let socket,timer,closed=false,attempt=0;
-  function connect(){if(closed)return;onStatus('Connecting');socket=new WebSocket(ws);
-    socket.onopen=()=>{attempt=0;onStatus('Live');};
-    socket.onmessage=event=>{try{const data=JSON.parse(event.data);if(data.type==='snapshot')onSnapshot(data);}catch{onStatus('Stream error');}};
-    socket.onclose=()=>{if(closed)return;onStatus('Reconnecting');timer=setTimeout(connect,Math.min(30000,1000*2**attempt++));};
-    socket.onerror=()=>socket.close();
+  function connect(){if(closed)return;onStatus('Connecting');const connection=new WebSocket(ws);socket=connection;
+    const current=()=>!closed&&socket===connection;
+    connection.onopen=()=>{if(!current())return;attempt=0;onStatus('Live');};
+    connection.onmessage=event=>{if(!current())return;try{const data=JSON.parse(event.data);if(data.type==='snapshot')onSnapshot(data);}catch{onStatus('Stream error');}};
+    connection.onclose=()=>{if(!current())return;onStatus('Reconnecting');timer=setTimeout(connect,Math.min(30000,1000*2**attempt++));};
+    connection.onerror=()=>{if(current())connection.close();};
   }
   connect();return ()=>{closed=true;clearTimeout(timer);socket?.close();};
 }
