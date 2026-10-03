@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test" },
+  "scripts": {
+    "test": "node --test",
+    "routing:benchmark": "node scripts/benchmark-routing.js",
+    "routing:ingest": "node scripts/ingest-routing.js"
+  },
   "engines": { "node": ">=20" }
 }
