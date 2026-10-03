@@ -3,7 +3,7 @@ import { NativeMotionService } from './native-motion.js';
 import { captureLocation, watchLocation } from './location.js';
 import { withinCornell } from '../src/ui/cornell.js';
 import { SHOCK_GATE } from '../src/telemetry/policy.js';
-import { DeviceTransport, RawMotionTransport, request } from './connection.js';
+import { DeviceTransport, WebSocketMotionTransport, registerDevice, request } from './connection.js';
 import { Health, nativePlatform } from './health.js';
 import { HealthAnalyzer } from './health-analysis.js';
 import { MobileNavigation } from './mobile-navigation.js';
@@ -18,21 +18,14 @@ const locations = [], analyzer = new HealthAnalyzer();
 function message(text) { $('#phone-message').hidden = false; $('#message-text').textContent = text; }
 $('#close-message').onclick = () => { $('#phone-message').hidden = true; };
 function countReport() { $('#sent-count').textContent = String(++sent); }
-function openPairing() { $('#dock-details').open = true; $('#pair-details').open = true; }
-function pairLink(link) {
-  const url = new URL(link), fragment = new URLSearchParams(url.hash.slice(1));
-  const api = fragment.get('api'), token = fragment.get('token'), deviceId = fragment.get('device_id');
-  if (!api || !token || !deviceId) throw new Error('Paste the complete link from Connect Phone.');
-  const endpoint = new URL(api);
-  if (endpoint.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(endpoint.hostname)) throw new Error('The connection must use HTTPS.');
-  if (sharing) stopSensors();
-  pairing = { api: endpoint.origin, token, deviceId }; navigation?.setApi(pairing.api);
-  $('#connection').textContent = 'Paired'; $('#phone-status').textContent = 'Paired. Tap Start Sensors to allow motion and location access.';
-  $('#pair-details').open = false; $('#start').disabled = false;
+let sessionRequest;
+async function ensureSession() {
+  if (pairing && (!pairing.expiresAt || pairing.expiresAt > Date.now() / 1000 + 30)) return pairing;
+  sessionRequest ??= registerDevice(undefined, pairing).then(session => {
+    pairing = session; $('#connection').textContent = 'Connected'; return session;
+  }).finally(() => { sessionRequest = null; });
+  return sessionRequest;
 }
-try { if (window.location.hash) pairLink(window.location.href); } catch (error) { message(error.message); }
-window.addEventListener('hashchange', () => { if (window.location.hash) { try { pairLink(window.location.href); } catch (error) { message(error.message); } } });
-$('#pair').onclick = () => { try { pairLink($('#pair-link').value.trim()); message('Pairing ready. Tap Start Sensors.'); } catch (error) { message(error.message); } };
 function freshLocation() {
   if (!location || Date.now() / 1000 - location.timestamp > 10 || location.accuracyMeters > 20 || !withinCornell(location)) throw new Error('A fresh, precise Cornell location is needed.');
   return location;
@@ -97,23 +90,24 @@ async function readHealth() {
 }
 $('#start').onclick = async () => {
   navigation.unlockAudio();
-  if (!pairing) { message('Scan a Connect Phone QR code or paste its pairing link first.'); openPairing(); return; }
   if (!window.isSecureContext) { message('Open this phone page over HTTPS to enable motion and location.'); return; }
   $('#start').disabled = true; sharing = true; const generation = ++sharingGeneration;
   // iOS permission request runs directly in this tap, before any await/network call.
-  const motionRequest = motion.start().catch(error => {
+  const motionRequest = motion.start().then(() => true).catch(error => {
     if (generation !== sharingGeneration) return;
-    rawTransport?.stop(); $('#sensor-status').textContent = `Motion: ${error.message}`; message(`Motion: ${error.message} Manual reporting remains available.`);
+    rawTransport?.stop(); $('#sensor-status').textContent = `Motion: ${error.message}`; message(`Motion: ${error.message} Manual reporting remains available.`); return false;
   });
-  transport = new DeviceTransport({ ...pairing, onStatus: status => { $('#connection').textContent = status; }, onRejected: message, onSent: countReport }); transport.start();
-  if (!nativePlatform()) {
-    rawTransport = new RawMotionTransport({ ...pairing, getLocation: () => { try { const point = freshLocation(); return { lat: point.lat, lng: point.lon, accuracy_meters: point.accuracyMeters, timestamp: point.timestamp }; } catch { return null; } },
-      onStatus: status => { $('#sensor-status').textContent = status; }, onSent: countReport }); rawTransport.start();
-  }
-  ensureLocation().catch(error => { if (generation === sharingGeneration) $('#phone-status').textContent = error.message; });
+  const locationRequest = ensureLocation().catch(error => { if (generation === sharingGeneration) $('#phone-status').textContent = error.message; });
   $('#start').hidden = true; $('#stop').hidden = false;
   try {
-    await motionRequest; if (!sharing || generation !== sharingGeneration) return;
+    await ensureSession(); if (!sharing || generation !== sharingGeneration) return;
+    const motionAllowed = await motionRequest; if (!sharing || generation !== sharingGeneration) return;
+    transport = new DeviceTransport({ ...pairing, onStatus: status => { $('#connection').textContent = status; }, onRejected: message, onSent: countReport }); transport.start();
+    if (!nativePlatform() && motionAllowed) {
+      rawTransport = new WebSocketMotionTransport({ ...pairing, getLocation: () => { try { const point = freshLocation(); return { lat: point.lat, lng: point.lon, accuracy_meters: point.accuracyMeters, timestamp: point.timestamp }; } catch { return null; } },
+        onStatus: status => { $('#sensor-status').textContent = status; }, onSent: countReport }); rawTransport.start();
+    }
+    await locationRequest; if (!sharing || generation !== sharingGeneration) return;
     if (nativePlatform()) {
       const availability = await Health.availability(); if (!sharing || generation !== sharingGeneration) return;
       if (availability.available) {
@@ -122,14 +116,14 @@ $('#start').onclick = async () => {
         healthTimer = setInterval(readHealth, 30000); readHealth(); $('#health-status').textContent = 'Native health access requested · fresh samples matched to location';
       } else $('#health-status').textContent = availability.reason || 'Native health is unavailable.';
     }
-  } catch (error) { if (generation === sharingGeneration) $('#health-status').textContent = error.message; }
+  } catch (error) { if (generation === sharingGeneration) { stopSensors(); message(error.message); } }
   finally { if (generation === sharingGeneration) $('#start').disabled = false; }
 };
 function stopSensors() {
   sharing = false; ++sharingGeneration; motion.stop(); rawTransport?.stop(); rawTransport = null; transport?.stop(); clearInterval(healthTimer);
   if (nativePlatform()) Health.stopMonitoring().catch(() => {});
   locations.length = 0; $('#start').hidden = false; $('#start').disabled = false; $('#stop').hidden = true;
-  $('#connection').textContent = pairing ? 'Paired' : 'Not paired'; $('#sensor-status').textContent = 'Sensors stopped';
+  $('#connection').textContent = 'Ready'; $('#sensor-status').textContent = 'Sensors stopped';
   $('#phone-status').textContent = 'Sensor sharing stopped. GPS navigation remains active.';
 }
 $('#stop').onclick = stopSensors;
@@ -143,10 +137,21 @@ function setReport(point) {
   reportLocation = Object.freeze({ ...point }); $('#phone-map').hidden = false;
   const coordinate = [point.lat, point.lon], L = window.L;
   if (!reportMap) {
-    reportMap = L.map('phone-map', { dragging: false, touchZoom: false, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false, zoomControl: false });
+    reportMap = L.map('phone-map', { dragging: true, touchZoom: true, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false, zoomControl: false });
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(reportMap);
   }
-  reportMarker?.remove(); reportMarker = L.marker(coordinate, { draggable: false, keyboard: false, interactive: false }).addTo(reportMap);
+  reportMarker?.remove(); reportMarker = L.marker(coordinate, { draggable: true, keyboard: true, autoPan: true, title: 'Drag pin to exact hazard location' }).addTo(reportMap);
+  reportMarker.on('dragend', () => {
+    if (reportPayload || reportSending) return;
+    const pin = reportMarker.getLatLng(), point = { lat: pin.lat, lon: pin.lng };
+    if (!withinCornell(point)) {
+      reportMarker.setLatLng([reportLocation.lat, reportLocation.lon]);
+      $('#location-status').textContent = 'Keep the hazard pin inside Cornell coverage.'; return;
+    }
+    reportLocation = Object.freeze({ ...reportLocation, ...point, accuracyMeters: 0, timestamp: Date.now() / 1000 });
+    $('#chosen-coordinate').textContent = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
+    $('#location-status').textContent = 'Hazard pin moved. Choose a category, then confirm.';
+  });
   requestAnimationFrame(() => { reportMap.invalidateSize(); reportMap.setView(coordinate, 18, { animate: false }); });
   $('#location-status').textContent = `GPS captured · accuracy ±${Math.round(point.accuracyMeters)} m. Choose a category.`;
   $('#chosen-coordinate').textContent = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
@@ -178,14 +183,16 @@ document.querySelectorAll('[data-metric]').forEach(button => { button.onclick = 
 }; });
 $('#confirm-report').onclick = async () => {
   if (!reportLocation || !reportCategory || reportSending) return;
-  if (!pairing) { $('#location-status').textContent = 'Pair your phone with Connect Phone before confirming a report.'; return; }
   if (Date.now() / 1000 - reportLocation.timestamp > 120) { $('#location-status').textContent = 'This GPS fix expired. Close and reopen the report to capture it again.'; return; }
-  reportPayload ??= { device_id: pairing.deviceId, event_id: crypto.randomUUID(), lat: reportLocation.lat, lng: reportLocation.lon,
-    accuracy_meters: reportLocation.accuracyMeters, source: 'manual', metric_type: reportCategory.metric, hazard_category: reportCategory.category, severity: 1, timestamp: reportLocation.timestamp };
   const generation = reportGeneration; reportSending = true; $('#confirm-report').disabled = true; $('#confirm-report').textContent = 'Sending…';
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 10000);
   document.querySelectorAll('[data-metric]').forEach(button => { button.disabled = true; });
+  reportMarker.dragging.disable();
   try {
+    await ensureSession();
+    if (generation !== reportGeneration || !$('#phone-report-dialog').open) return;
+    reportPayload ??= { device_id: pairing.deviceId, event_id: crypto.randomUUID(), lat: reportLocation.lat, lng: reportLocation.lon,
+    accuracy_meters: reportLocation.accuracyMeters, source: 'manual', metric_type: reportCategory.metric, hazard_category: reportCategory.category, severity: 1, timestamp: reportLocation.timestamp };
     const result = await request('/api/telemetry/event', { api: pairing.api, token: pairing.token, method: 'POST', body: reportPayload, signal: controller.signal });
     if (!result.accepted) throw new Error(result.reason || 'The report was not accepted.');
     if (!result.duplicate) countReport();

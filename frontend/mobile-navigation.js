@@ -1,3 +1,5 @@
+import { NotificationChime } from './notification-chime.js';
+import { DestinationPicker } from './destination-picker.js';
 import { request, subscribe, configuration } from './connection.js';
 import { CORNELL_PLACES, CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
 import { resolvePlace, hazardName, RouteAlerts, routeMinutes, etaDelta, hazardAhead, remainingSeconds, sameRoute } from './navigation-state.js';
@@ -9,7 +11,7 @@ export class MobileNavigation {
     Object.assign(this, { getLocation, ensureLocation, notify });
     this.api = api || configuration().api; this.alerts = new RouteAlerts(); this.requestId = 0;
     this.snapshot = null; this.options = null; this.active = null; this.pending = [];
-    this.audio = new Audio('/public/chime.wav'); this.audio.volume = .25; this.sound = true;
+    this.audio = new NotificationChime(); this.sound = true;
     const L = window.L;
     this.map = L.map('navigation-map', { zoomControl: false }).fitBounds(CORNELL_VIEW);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(this.map);
@@ -18,6 +20,7 @@ export class MobileNavigation {
     for (const place of CORNELL_PLACES) {
       const option = document.createElement('option'); option.value = place.name; $('#campus-places').append(option);
     }
+    this.picker = new DestinationPicker($('#destination-location'), $('#destination-toggle'), CORNELL_PLACES);
     this.map.on('click', ({ latlng }) => {
       if (!withinCornell({ lat: latlng.lat, lon: latlng.lng })) { this.notify('Choose a destination inside Cornell coverage.'); return; }
       $('#destination-location').value = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
@@ -39,15 +42,8 @@ export class MobileNavigation {
     this.resize = new ResizeObserver(() => this.map.invalidateSize()); this.resize.observe($('#navigation-map'));
     this.connect();
   }
-  unlockAudio() {
-    if (!this.sound || this.audioUnlocked) return;
-    this.audio.muted = true;
-    this.audio.play().then(() => { this.audio.pause(); this.audio.currentTime = 0; this.audio.muted = false; this.audioUnlocked = true; }).catch(() => { this.audio.muted = false; });
-  }
-  chime() {
-    if (!this.sound) return;
-    this.audio.muted = false; this.audio.currentTime = 0; this.audio.play().catch(() => {});
-  }
+  unlockAudio() { if (this.sound) this.audio.unlock(); }
+  chime() { if (this.sound) this.audio.play(); }
   setApi(api) {
     if (this.api === api) return;
     this.api = api; this.unsubscribe?.(); this.cancelRequest(); this.alerts = new RouteAlerts(); this.pending = [];
@@ -134,14 +130,12 @@ export class MobileNavigation {
     // Keep the actual selected route visible when a server update proposes a new line.
     const available = [{ key: 'direct', label: 'Direct', route: options.direct },
       ...(options.alternative ? [{ key: 'alternative', label: 'Alternative', route: options.alternative }] : [])];
-    for (const item of available) {
-      const selected = sameRoute(this.active, item.route);
-      L.polyline(item.route.geometry.map(p => [p.lat, p.lon]), { color: selected ? '#2459e0' : '#8b96a7', weight: selected ? 7 : 5, opacity: .85,
-        dashArray: item.route.hazard_ids.length ? '8 6' : undefined }).addTo(this.routes);
+    // Paint every unselected option first; the solid blue selected line covers
+    // shared geometry, leaving only the diverging alternative sections grey.
+    for (const item of available.filter(item => !sameRoute(this.active, item.route))) {
+      L.polyline(item.route.geometry.map(p => [p.lat, p.lon]), { color: '#8b96a7', weight: 5, opacity: 1 }).addTo(this.routes);
     }
-    if (!available.some(item => sameRoute(item.route, this.active))) {
-      L.polyline(this.active.geometry.map(p => [p.lat, p.lon]), { color: '#2459e0', weight: 7, opacity: 1 }).addTo(this.routes);
-    }
+    L.polyline(this.active.geometry.map(p => [p.lat, p.lon]), { color: '#2459e0', weight: 7, opacity: 1 }).addTo(this.routes).bringToFront();
     $('#route-options').replaceChildren();
     for (const item of available) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'route-card';
@@ -204,5 +198,5 @@ export class MobileNavigation {
     this.active = this.options.alternative; this.activeChoice = 'alternative'; this.pending = []; this.hideAlert(); this.renderRoutes();
     this.notify('Alternative route accepted.');
   }
-  stop() { this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.pause(); }
+  stop() { this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.stop(); this.picker.close(); }
 }

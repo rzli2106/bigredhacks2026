@@ -21,6 +21,7 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
   const rawMotion=new RawMotionReceiver(engine);
   const sessions=new Map(), limits=new Map(), origins=new Set(allowedOrigins);
   const websocket=new WebSocketServer({noServer:true,maxPayload:1024,perMessageDeflate:false});
+  const deviceSockets=new WebSocketServer({noServer:true,maxPayload:65536,perMessageDeflate:false});
   const allowOrigin=origin=>!origin||origins.has(origin);
   const local=request=>!production&&['127.0.0.1','::1','::ffff:127.0.0.1'].includes(request.socket.remoteAddress)&&
     /^((127\.0\.0\.1)|(localhost)|(\[::1\]))(:\d+)?$/.test(request.headers.host??'')&&!request.headers['x-forwarded-for']&&!request.headers['x-forwarded-host'];
@@ -30,7 +31,7 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
     const token=bearer(request);
     if (equal(token,adminToken)) return;
     const session=sessions.get(token);
-    if (!session||session.expiresAt<=engine.now()) throw new ApiError(401,'Pairing expired. Scan a new Connect Phone QR code.');
+    if (!session||session.expiresAt<=engine.now()) throw new ApiError(401,'Device session expired. Enable navigation and sensors again.');
     if (payload.device_id!==session.deviceId) throw new ApiError(403,'This pairing belongs to another device.');
     session.lastSeen=engine.now();
   }
@@ -88,6 +89,22 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
         mobile.hash=new URLSearchParams({token,device_id:deviceId,api}).toString();
         json(response,201,{url:mobile.href,device_id:deviceId,expires_at:expiresAt});return;
       }
+      if(path==='/api/devices/register'&&request.method==='POST') {
+        const data=await body(request);
+        if(typeof data.device_id!=='string'||!/^[\w:-]{1,80}$/.test(data.device_id))throw new ApiError(400,'Invalid device_id.');
+        const existing=sessions.get(bearer(request));
+        if(existing&&existing.deviceId===data.device_id&&existing.expiresAt>engine.now()) {
+          json(response,200,{token:bearer(request),device_id:existing.deviceId,expires_at:existing.expiresAt});return;
+        }
+        const key=`register:${request.socket.remoteAddress}`,at=engine.now(),previous=limits.get(key);
+        const bucket=previous&&at-previous.start<60?previous:{start:at,count:0};limits.set(key,bucket);
+        if(++bucket.count>10)throw new ApiError(429,'Too many device registrations. Retry in a minute.');
+        for(const[token,session]of sessions)if(session.expiresAt<=at)sessions.delete(token);
+        if(sessions.size>=500)throw new ApiError(429,'Device capacity reached.');
+        const token=randomBytes(32).toString('base64url'),expiresAt=at+pairLifetimeSeconds;
+        sessions.set(token,{deviceId:data.device_id,expiresAt,lastSeen:null});
+        json(response,201,{token,device_id:data.device_id,expires_at:expiresAt});return;
+      }
       if(path==='/api/devices/heartbeat'&&request.method==='POST'){
         const data=await body(request);authorizeDevice(request,data);json(response,200,{ok:true});return;
       }
@@ -130,8 +147,45 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
     }catch(error){json(response,error instanceof ApiError?error.status:error.code==='ENOENT'?404:500,{error:error instanceof ApiError?error.message:error.code==='ENOENT'?'Not found.':'Server could not process the request.'});}
   });
   server.on('upgrade',(request,socket,head)=>{
-    if(new URL(request.url,'http://localhost').pathname!=='/ws/stream'||!allowOrigin(request.headers.origin)||websocket.clients.size>=maxClients){socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');socket.destroy();return;}
-    websocket.handleUpgrade(request,socket,head,client=>{websocket.emit('connection',client,request);});
+    const path=new URL(request.url,'http://localhost').pathname;
+    const target=path==='/ws/stream'?websocket:path==='/ws/device'?deviceSockets:null;
+    if(!target||!allowOrigin(request.headers.origin)||websocket.clients.size+deviceSockets.clients.size>=maxClients){socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');socket.destroy();return;}
+    target.handleUpgrade(request,socket,head,client=>{target.emit('connection',client,request);});
+  });
+  deviceSockets.on('connection',client=>{
+    client.alive=true;client.on('error',()=>{});client.on('pong',()=>{client.alive=true;});
+    let token,deviceId,bucket={start:engine.now(),count:0};
+    const authentication=setTimeout(()=>client.close(1008,'Authentication required'),5000);authentication.unref();
+    client.on('close',()=>clearTimeout(authentication));
+    client.on('message',(bytes,isBinary)=>{
+      let data;
+      try {
+        if(isBinary)throw new ApiError(400,'Expected JSON text.');
+        try{data=JSON.parse(bytes.toString());}catch{throw new ApiError(400,'Expected JSON text.');}
+        if(!data||typeof data!=='object'||Array.isArray(data))throw new ApiError(400,'Expected a JSON object.');
+        const at=engine.now();if(at-bucket.start>=60)bucket={start:at,count:0};
+        if(++bucket.count>1500)throw new ApiError(429,'Telemetry rate exceeded.');
+        if(!token) {
+          if(data.type!=='authenticate')throw new ApiError(401,'Authenticate first.');
+          const session=sessions.get(data.token);
+          if(!session||session.expiresAt<=at||session.deviceId!==data.device_id)throw new ApiError(401,'Invalid device session.');
+          token=data.token;deviceId=session.deviceId;session.lastSeen=at;clearTimeout(authentication);
+          client.send(JSON.stringify({type:'authenticated'}));broadcast();return;
+        }
+        authorizeDevice({headers:{authorization:`Bearer ${token}`}},data);
+        if(data.device_id!==deviceId)throw new ApiError(403,'Device mismatch.');
+        if(data.type==='heartbeat'){client.send(JSON.stringify({type:'heartbeat_ack'}));return;}
+        if(data.type!=='telemetry')throw new ApiError(400,'Unknown device message.');
+        const revision=engine.revision;
+        try {
+          const result=rawMotion.ingest(data);
+          client.send(JSON.stringify({type:'telemetry_ack',...result}));
+        } finally {if(engine.revision!==revision)broadcast();}
+      }catch(error){
+        client.send(JSON.stringify({type:'error',status:error instanceof ApiError?error.status:500,error:error instanceof ApiError?error.message:'Telemetry could not be processed.'}));
+        if(!token||[401,403,429].includes(error.status))client.close(1008,'Device authorization or rate limit');
+      }
+    });
   });
   websocket.on('connection',client=>{
     client.alive=true;client.on('error',()=>{});client.on('pong',()=>{client.alive=true;});
@@ -143,7 +197,7 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
     for(const[key,bucket]of limits)if(engine.now()-bucket.start>60)limits.delete(key);
     if(engine.metadata.size||websocket.clients.size)broadcast();
   },broadcastMs);timer.unref();
-  const ping=setInterval(()=>{for(const client of websocket.clients){if(!client.alive){client.terminate();continue;}client.alive=false;client.ping();}},30000);ping.unref();
+  const ping=setInterval(()=>{for(const client of [...websocket.clients,...deviceSockets.clients]){if(!client.alive){client.terminate();continue;}client.alive=false;client.ping();}},30000);ping.unref();
   return {server,engine,broadcast,adminToken,listen:(port=8000,host='127.0.0.1')=>new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,host,()=>{server.removeListener('error',reject);const address=server.address();if(!production){origins.add(`http://127.0.0.1:${address.port}`);origins.add(`http://localhost:${address.port}`);}resolve(address);});}),
-    close:async()=>{clearInterval(timer);clearInterval(ping);engine.dispose();for(const client of websocket.clients)client.terminate();await new Promise(resolve=>websocket.close(resolve));if(server.listening)await new Promise(resolve=>server.close(resolve));}};
+    close:async()=>{clearInterval(timer);clearInterval(ping);engine.dispose();for(const client of [...websocket.clients,...deviceSockets.clients])client.terminate();await Promise.all([new Promise(resolve=>websocket.close(resolve)),new Promise(resolve=>deviceSockets.close(resolve))]);if(server.listening)await new Promise(resolve=>server.close(resolve));}};
 }
