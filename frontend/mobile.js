@@ -7,6 +7,7 @@ import { DeviceTransport, RawMotionTransport, request } from './connection.js';
 import { Health, nativePlatform } from './health.js';
 import { HealthAnalyzer } from './health-analysis.js';
 import { MobileNavigation } from './mobile-navigation.js';
+import { readPairingLink } from './pairing.js';
 
 const $ = selector => document.querySelector(selector);
 let pairing, transport, rawTransport, navigation, healthTimer, location, locationStart;
@@ -20,15 +21,9 @@ $('#close-message').onclick = () => { $('#phone-message').hidden = true; };
 function countReport() { $('#sent-count').textContent = String(++sent); }
 function openPairing() { $('#dock-details').open = true; $('#pair-details').open = true; }
 function pairLink(link) {
-  let url;
-  try { url = new URL(link); } catch { throw new Error('Paste the complete pairing link from Connect Phone.'); }
-  const fragment = new URLSearchParams(url.hash.slice(1));
-  const api = fragment.get('api'), token = fragment.get('token'), deviceId = fragment.get('device_id');
-  if (!api || !token || !deviceId) throw new Error('Paste the complete link from Connect Phone.');
-  const endpoint = new URL(api);
-  if (endpoint.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(endpoint.hostname)) throw new Error('The connection must use HTTPS.');
+  const next = readPairingLink(link);
   if (sharing) stopSensors();
-  pairing = { api: endpoint.origin, token, deviceId }; navigation?.setApi(pairing.api);
+  pairing = next; navigation?.setApi(pairing.api);
   $('#connection').textContent = 'Paired'; $('#phone-status').textContent = 'Paired. Tap Start Sensors to allow motion and location access.';
   $('#pair-details').open = false; $('#start').disabled = false;
 }
