@@ -40,7 +40,7 @@ test('health analyzer matches fresh samples, rejects delayed records, and normal
  assert.equal(analyzer.ingest([{id:'slow',metric:'speed',value:.5,start:now,end:now,source:'healthkit'}],[fix],now).length,1);
  assert.equal(analyzer.ingest([{id:'delayed',metric:'speed',value:.1,start:now-3600,end:now-3600,source:'healthkit'}],[fix],now).length,0);
  const other=new HealthAnalyzer();other.ingest(samples,[fix],now);
- assert.equal(other.ingest([{id:'stop-steps',metric:'steps',value:0,start:now-5,end:now},{id:'stop-speed',metric:'speed',value:0,start:now,end:now,source:'health_connect'}],[fix],now).length,0);
+ assert.equal(other.ingest([{id:'stop-steps',metric:'steps',value:0,start:now-5,end:now,source:'health_connect'},{id:'stop-speed',metric:'speed',value:0,start:now,end:now,source:'health_connect'}],[fix],now).length,0);
  const asym=new HealthAnalyzer();asym.ingest(samples.map(s=>({...s,metric:'asymmetry',value:.1})),[fix],now);
  assert.equal(asym.ingest([{id:'jump',metric:'asymmetry',value:.12,start:now,end:now,source:'healthkit'}],[fix],now).length,1);
  assert.equal(asym.ingest([{id:'jump',metric:'asymmetry',value:.12,start:now,end:now,source:'healthkit'}],[fix],now).length,0);
