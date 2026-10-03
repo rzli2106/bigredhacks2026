@@ -11,6 +11,7 @@ export class PlaceSearch {
   constructor(input, { live = false, onSelect = () => {} } = {}) {
     this.input = input; this.live = live; this.onSelect = onSelect;
     this.list = document.getElementById(input.getAttribute('aria-controls'));
+    this.status = document.getElementById(`${this.list.id}-status`);
     this.index = -1;
     input.addEventListener('input', () => this.open());
     input.addEventListener('focus', () => this.open());
@@ -46,6 +47,7 @@ export class PlaceSearch {
       message.textContent = 'No campus match. Enter coordinates or drop a pin.';
       message.setAttribute('role', 'presentation'); this.list.append(message);
     }
+    if (this.status) this.status.textContent = this.matches.length ? `${this.matches.length} suggestion${this.matches.length === 1 ? '' : 's'} available.` : 'No campus match. Enter coordinates or drop a pin.';
     this.list.hidden = false; this.input.setAttribute('aria-expanded', 'true');
   }
   highlight() {
@@ -54,5 +56,5 @@ export class PlaceSearch {
     this.input.setAttribute('aria-activedescendant', option.id); option.scrollIntoView({ block: 'nearest' });
   }
   select(place) { this.input.value = place.name; this.close(); this.onSelect(place); }
-  close() { this.list.hidden = true; this.input.setAttribute('aria-expanded', 'false'); this.input.removeAttribute('aria-activedescendant'); }
+  close() { if (this.status) this.status.textContent = ''; this.list.hidden = true; this.input.setAttribute('aria-expanded', 'false'); this.input.removeAttribute('aria-activedescendant'); }
 }
