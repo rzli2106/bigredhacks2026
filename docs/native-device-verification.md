@@ -2,7 +2,9 @@
 
 Android APK and iOS simulator compilation are verified in CI. Physical sensor delivery, GPS precision, health-store delivery and background HealthKit wakes require a real device; they are not established by a successful build.
 
-Current APK: feature commit `b35a50f`, merged into main as `34ad6a2`, built in [native CI](https://github.com/rzli2106/bigredhacks2026/actions/runs/37133251755). Android health reads now terminate on null or empty page tokens, following [Health Connect pagination guidance](https://developer.android.com/health-and-fitness/health-connect/read-data). Web checks and both SDK builds passed; the empty-token behavior has not been exercised against a physical Health Connect provider.
+Current APK: main commit `bfce04c`, built in [native CI](https://github.com/rzli2106/bigredhacks2026/actions/runs/37133782805). Android health reads now terminate on null or empty page tokens, following [Health Connect pagination guidance](https://developer.android.com/health-and-fitness/health-connect/read-data). Web checks and both SDK builds passed; the empty-token behavior has not been exercised against a physical Health Connect provider.
+
+Native motion cleanup now attempts both sensor shutdown and listener removal even if either operation rejects or throws. Three regressions fail against the previous implementation; 130 tests and both SDK builds pass. These simulated bridge failures do not establish physical sensor shutdown on a phone.
 
 ## Install and pair
 
