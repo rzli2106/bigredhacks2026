@@ -49,15 +49,27 @@ export function subscribe(onSnapshot,onStatus=()=>{},{ws=configuration().ws}={})
   connect();return ()=>{closed=true;clearTimeout(timer);socket?.close();};
 }
 export class DeviceTransport {
-  constructor({api,token,deviceId,onStatus=()=>{},onSent=()=>{},onRejected=()=>{}}){Object.assign(this,{api,token,deviceId,onStatus,onSent,onRejected});this.queue=[];this.running=false;this.enabled=false;}
-  start(){this.enabled=true;this.heartbeat();this.timer=setInterval(()=>this.heartbeat(),15000);this.flush();}
-  stop(){this.enabled=false;clearInterval(this.timer);this.queue=[];}
-  async heartbeat(){try{await request('/api/devices/heartbeat',{api:this.api,method:'POST',token:this.token,body:{device_id:this.deviceId}});if(!this.enabled)return;this.onStatus('Connected');this.flush();}catch(e){if(this.enabled)this.onStatus(e.message);}}
+  constructor({api,token,deviceId,onStatus=()=>{},onSent=()=>{},onRejected=()=>{}}){Object.assign(this,{api,token,deviceId,onStatus,onSent,onRejected});this.queue=[];this.running=false;this.enabled=false;this.generation=0;this.requests=new Set();}
+  start(){if(this.enabled)return;this.enabled=true;++this.generation;this.heartbeat();this.timer=setInterval(()=>this.heartbeat(),15000);this.flush();}
+  stop(){this.enabled=false;++this.generation;clearInterval(this.timer);this.queue=[];for(const controller of this.requests)controller.abort();this.requests.clear();this.running=false;this.heartbeatRunning=false;}
+  async send(path,body,timeoutMs){
+    const controller=new AbortController();this.requests.add(controller);
+    const timeout=setTimeout(()=>controller.abort(),timeoutMs);
+    try{return await request(path,{api:this.api,method:'POST',token:this.token,body,signal:controller.signal});}
+    finally{clearTimeout(timeout);this.requests.delete(controller);}
+  }
+  async heartbeat(){
+    if(!this.enabled||this.heartbeatRunning)return;
+    const generation=this.generation;this.heartbeatRunning=true;
+    try{await this.send('/api/devices/heartbeat',{device_id:this.deviceId},60000);if(!this.enabled||generation!==this.generation)return;this.onStatus('Connected');this.flush();}
+    catch(error){if(this.enabled&&generation===this.generation){this.onStatus(error.name==='AbortError'?'Connection timed out. Retrying…':error.message);if([401,403].includes(error.status)){this.stop();this.onRejected(error.message);}}}
+    finally{if(generation===this.generation)this.heartbeatRunning=false;}
+  }
   enqueue(event){if(!this.enabled)return;this.queue.push({...event,device_id:this.deviceId,event_id:crypto.randomUUID()});if(this.queue.length>100)this.queue.shift();this.flush();}
-  async flush(){if(this.running||!this.enabled)return;this.running=true;
-    try{while(this.queue.length&&this.enabled){const event=this.queue[0];if(Date.now()/1000-event.timestamp>120){this.queue.shift();continue;}
-      try{const result=await request('/api/telemetry/event',{api:this.api,method:'POST',body:event,token:this.token});if(!this.enabled)return;this.queue.shift();this.onStatus('Connected');if(result.accepted)this.onSent(result);}
-      catch(error){if(!this.enabled)return;this.onStatus(error.message);if([400,403,413,415,422].includes(error.status)){this.queue.shift();this.onRejected(error.message);continue;}break;}}
-    }finally{this.running=false;}
+  async flush(){if(this.running||!this.enabled)return;const generation=this.generation;this.running=true;
+    try{while(this.queue.length&&this.enabled&&generation===this.generation){const event=this.queue[0];if(Date.now()/1000-event.timestamp>120){this.queue.shift();continue;}
+      try{const result=await this.send('/api/telemetry/event',event,10000);if(!this.enabled||generation!==this.generation)return;if(this.queue[0]?.event_id===event.event_id)this.queue.shift();this.onStatus('Connected');if(result.accepted)this.onSent(result);}
+      catch(error){if(!this.enabled||generation!==this.generation)return;this.onStatus(error.name==='AbortError'?'Report upload timed out. Retrying…':error.message);if([401,403].includes(error.status)){this.stop();this.onRejected(error.message);break;}if([400,413,415,422].includes(error.status)){if(this.queue[0]?.event_id===event.event_id)this.queue.shift();this.onRejected(error.message);continue;}break;}}
+    }finally{if(generation===this.generation)this.running=false;}
   }
 }
