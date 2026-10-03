@@ -4,11 +4,16 @@ import { fileURLToPath } from 'node:url';
 import { resolve, extname } from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
 const server = createServer(async (request, response) => {
   if (!['GET','HEAD'].includes(request.method)) { response.writeHead(405); response.end(); return; }
   try {
     const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
+    if (pathname === '/api/cornell-map') {
+      const content = await readFile(resolve(root, 'public/cornell-osm.json'));
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' });
+      response.end(request.method === 'HEAD' ? undefined : content); return;
+    }
     const relative = pathname === '/' ? 'index.html' : pathname.slice(1);
     if (relative !== 'index.html' && !['src/', 'public/', 'node_modules/leaflet/dist/'].some((prefix) => relative.startsWith(prefix))) {
       response.writeHead(404); response.end('Not found'); return;

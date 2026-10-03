@@ -1,7 +1,8 @@
-import { EdgeIndex, DynamicEdgeCosts, loadRoutingZone, shortestPath, haversine } from '../routing/index.js';
-import { createSampleArea, sampleCoordinate, SAMPLE_BOUNDS } from './sample-area.js';
+import { EdgeIndex, DynamicEdgeCosts, buildWalkingGraph, routeBetweenPins, haversine } from '../routing/index.js';
+import { CORNELL_BOUNDS, CORNELL_VIEW, CORNELL_PLACES, withinCornell } from './cornell.js';
 import { captureDeviceLocation, INCIDENT_CATEGORIES, incidentAppearance, submitIncident } from './reporting.js';
 import { icon, fillIcons } from './icons.js';
+import { fetchCampus } from './campus-data.js';
 
 const $ = (selector) => document.querySelector(selector);
 fillIcons();
@@ -13,14 +14,18 @@ if (!L) {
 }
 
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-const map = L.map('map', { zoomControl: false, attributionControl: true, minZoom: 12, maxZoom: 20,
-  zoomAnimation: !reducedMotion.matches, fadeAnimation: !reducedMotion.matches });
+const map = L.map('map', { zoomControl: false, attributionControl: true, minZoom: 14, maxZoom: 19, maxBoundsViscosity: 0.9,
+  zoomAnimation: false, fadeAnimation: !reducedMotion.matches });
 const pathLayer = L.layerGroup().addTo(map);
-const nodeLayer = L.layerGroup().addTo(map);
+const nodeLayer = L.layerGroup();
+const endpointLayer = L.layerGroup().addTo(map);
 const routeLayer = L.layerGroup().addTo(map);
 const hazardLayer = L.layerGroup().addTo(map);
-let graph, index, costs, placeNames, baseLayer, routeEndpoints;
-let mode = 'sample', reportLocation = null, reportGeneration = 0, picking = false, areaGeneration = 0, loadingArea = false;
+let graph, index, costs, baseLayer;
+let routeEndpoints = { origin: null, destination: null };
+const endpointLabels = { origin: '', destination: '' };
+let snapshotVersion, viewIntent = 'campus', nearbyGeneration = 0, locateGeneration = 0;
+let reportLocation = null, reportGeneration = 0, picking = null, loadingArea = false, areaPromise;
 let toastTimer, undoAction, locationMarker, locationCircle;
 const reports = new Map();
 const pins = new Map();
@@ -62,173 +67,165 @@ $('#toggle-nodes').addEventListener('click', () => {
 });
 
 function fitArea() {
-  const points = [...graph.nodes.values()].map(latitudeLongitude);
-  if (points.length) map.fitBounds(L.latLngBounds(points).pad(0.2), { animate: !reducedMotion.matches, padding: [55, 75] });
+  viewIntent = 'campus'; map.invalidateSize();
+  map.fitBounds(CORNELL_VIEW, { animate: !reducedMotion.matches, padding: [55, 75] });
 }
+map.setMaxBounds([[CORNELL_BOUNDS.south - 0.003, CORNELL_BOUNDS.west - 0.003],
+  [CORNELL_BOUNDS.north + 0.003, CORNELL_BOUNDS.east + 0.003]]);
+fitArea();
+baseLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>', updateWhenIdle: true,
+}).addTo(map);
+let failedTiles = 0;
+baseLayer.on('tileerror', () => {
+  failedTiles++;
+  $('#map-error').hidden = false;
+  $('#map-error').textContent = 'Background tiles are unavailable. Cornell walking paths and pins are still usable.';
+});
+baseLayer.on('loading', () => { failedTiles = 0; });
+baseLayer.on('load', () => { if (!failedTiles && graph) $('#map-error').hidden = true; });
 
-function nodeName(id) { return placeNames.get(id) ?? `Path junction ${id}`; }
-function populateSelects() {
-  for (const select of [$('#origin'), $('#destination')]) {
-    select.replaceChildren(...[...graph.nodes.keys()].slice(0, 500).map((id) => new Option(nodeName(id), String(id))));
-  }
+function nearestPlace(coordinate) {
+  return [...CORNELL_PLACES].sort((a,b) => haversine(a,coordinate) - haversine(b,coordinate))[0];
 }
-function nodeId(value) { return [...graph.nodes.keys()].find((id) => String(id) === value); }
-function setSelectedNode(select, id) {
-  if (![...select.options].some((option) => option.value === String(id))) select.add(new Option(nodeName(id), String(id)));
-  select.value = String(id);
+function pointLabel(coordinate) {
+  const place = nearestPlace(coordinate);
+  return haversine(place, coordinate) < 110 ? `Near ${place.name}` : `${coordinate.lat.toFixed(4)}, ${coordinate.lon.toFixed(4)}`;
 }
-function chooseNode(id, isOrigin = false) {
-  const select = isOrigin ? $('#origin') : $('#destination');
-  setSelectedNode(select, id);
-  updateRouteFromForm(true);
+function stopPicking() {
+  picking = null; $('#pick-banner').hidden = true;
+  for (const id of ['origin','destination']) $(`#${id}`).setAttribute('aria-pressed','false');
+  $('#map').classList.remove('placing-pin');
 }
-
-function liveEndpoints() {
-  // Prefer the largest connected walking network rather than unrelated OSM node order.
-  const neighbors = new Map([...graph.nodes.keys()].map((id) => [id, []]));
-  for (const edge of graph.edges.values()) { neighbors.get(edge.from).push(edge.to); neighbors.get(edge.to).push(edge.from); }
-  const seen = new Set();
-  let largest = [];
-  for (const id of graph.nodes.keys()) {
-    if (seen.has(id)) continue;
-    const component = [id]; seen.add(id);
-    for (let i = 0; i < component.length; i++) {
-      for (const next of neighbors.get(component[i])) if (!seen.has(next)) { seen.add(next); component.push(next); }
-    }
-    if (component.length > largest.length) largest = component;
-  }
-  const center = map.getCenter();
-  let from = largest[0], best = Infinity;
-  for (const id of largest) {
-    if (!graph.adjacency.get(id).length) continue;
-    const distance = haversine(graph.nodes.get(id), { lat: center.lat, lon: center.lng });
-    if (distance < best) { from = id; best = distance; }
-  }
-  const reachable = [from], visited = new Set([from]);
-  let to = from, farthest = 0;
-  for (let i = 0; i < reachable.length; i++) {
-    const current = reachable[i];
-    const distance = haversine(graph.nodes.get(from), graph.nodes.get(current));
-    if (distance > farthest) { to = current; farthest = distance; }
-    for (const id of graph.adjacency.get(current)) {
-      const next = graph.edges.get(id).to;
-      if (!visited.has(next)) { visited.add(next); reachable.push(next); }
-    }
-  }
-  return { from, to };
+function startPicking(kind) {
+  if (!graph) { notify('Walking paths are still loading. Use Campus map to retry if loading fails.'); return; }
+  stopPicking(); locateGeneration++; picking = kind;
+  $('#pick-banner span').textContent = kind === 'report' ? 'Tap the map to place your report.' : `Tap the map to set your ${kind === 'origin' ? 'starting point' : 'destination'}.`;
+  $('#pick-banner').hidden = false;
+  if (kind !== 'report') $(`#${kind}`).setAttribute('aria-pressed','true');
+  $('#map').classList.add('placing-pin');
+  $('#map').scrollIntoView({ block: 'center', behavior: reducedMotion.matches ? 'instant' : 'smooth' });
+  $('#map').focus({ preventScroll: true });
 }
-
-function setGraph(nextGraph, names, nextMode) {
-  costs?.dispose();
-  graph = nextGraph;
-  costs = new DynamicEdgeCosts(graph);
-  index = new EdgeIndex(graph);
-  placeNames = names;
-  mode = nextMode;
-  reports.clear(); pins.clear();
-  pathLayer.clearLayers(); nodeLayer.clearLayers(); routeLayer.clearLayers(); hazardLayer.clearLayers();
-  locationMarker?.remove(); locationCircle?.remove(); locationMarker = null; locationCircle = null;
-  baseLayer?.remove();
-  if (mode === 'sample') {
-    baseLayer = L.imageOverlay('/public/sample-map.svg', SAMPLE_BOUNDS, { pane: 'tilePane', interactive: false }).addTo(map);
-    map.attributionControl.addAttribution('Illustrative campus map');
-    $('#area-name').textContent = 'Cornell, Ithaca';
-  } else {
-    map.attributionControl.removeAttribution('Illustrative campus map');
-    baseLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
-      updateWhenIdle: true,
-    }).addTo(map);
-    baseLayer.on('tileerror', () => {
-      $('#map-error').hidden = false;
-      $('#map-error').textContent = 'Background tiles are unavailable. Walking paths and reports are still shown.';
+function setEndpoint(kind, coordinate) {
+  if (!withinCornell(coordinate)) { notify('Choose a point within Cornell campus.'); return false; }
+  if (!index.nearest(coordinate, { maxDistanceMeters: 40 })) { notify('Choose a point closer to a walking path (within 40 m).'); return false; }
+  map.closePopup();
+  routeEndpoints[kind] = { ...coordinate };
+  endpointLabels[kind] = pointLabel(coordinate);
+  renderEndpoints(); renderRoute();
+  return true;
+}
+function renderEndpoints() {
+  endpointLayer.clearLayers();
+  for (const kind of ['origin','destination']) {
+    const coordinate = routeEndpoints[kind], end = kind === 'destination';
+    $(`#${kind}-label`).textContent = coordinate ? endpointLabels[kind] : 'Drop a pin on the map';
+    if (!coordinate) continue;
+    const marker = L.marker(latitudeLongitude(coordinate), { draggable: true,
+      icon: L.divIcon({ className: '', html: `<span class="endpoint-icon ${end ? 'end' : ''}">${end ? 'B' : 'A'}</span>`, iconSize: [30,30], iconAnchor: [15,15] }),
+      zIndexOffset: 1000, title: `${end ? 'Destination' : 'Starting point'}: ${endpointLabels[kind]}` }).addTo(endpointLayer);
+    marker.on('dragend', () => {
+      const point = marker.getLatLng();
+      if (!setEndpoint(kind, { lat: point.lat, lon: point.lng })) renderEndpoints();
     });
-    $('#area-name').textContent = 'Your local area';
+    marker.on('click', () => { if (picking) map.fire('click', { latlng: marker.getLatLng() }); });
   }
-  $('#map-error').hidden = true;
-  $('#data-badge').innerHTML = `<span class="status-dot"></span>${mode === 'sample' ? 'Sample area' : 'OpenStreetMap'}<span class="badge-divider"></span><span>${mode === 'sample' ? 'Explore the controls' : 'Live walking paths'}</span>`;
-  $('#report-caption').textContent = mode === 'sample' ? 'Sample reports · for exploration' : 'Your reports · this session';
-  $('#status-text').textContent = mode === 'sample' ? 'Sample routes and reports · saved in this session' : 'OpenStreetMap paths · reports saved in this session';
+}
+for (const kind of ['origin','destination']) $(`#${kind}`).addEventListener('click', () => startPicking(kind));
+
+function setGraph(nextGraph, version) {
+  // Prepare a usable graph before replacing any visible state.
+  const firstLoad = !graph;
+  const nextIndex = new EdgeIndex(nextGraph);
+  const defaults = CORNELL_PLACES.slice(0,2).map((place) => nextIndex.nearest(place, { maxDistanceMeters: 40 }));
+  if (defaults.some((match) => !match)) throw new Error('The snapshot does not contain the central Cornell walking network.');
+  const nextCosts = new DynamicEdgeCosts(nextGraph);
+  costs?.dispose(); graph = nextGraph; index = nextIndex; costs = nextCosts; snapshotVersion = version;
+  reports.clear(); pins.clear(); pathLayer.clearLayers(); nodeLayer.clearLayers(); routeLayer.clearLayers(); hazardLayer.clearLayers();
   for (const segment of graph.segments) {
-    L.polyline(segment.geometry.map(latitudeLongitude), {
-      color: mode === 'sample' ? '#c8cdc4' : '#919fb5', weight: mode === 'sample' ? 1.5 : 3, opacity: 0.6,
-    }).addTo(pathLayer);
+    L.polyline(segment.geometry.map(latitudeLongitude), { color: '#748a92', weight: 1.5, opacity: 0.3, interactive: false }).addTo(pathLayer);
   }
   for (const node of graph.nodes.values()) {
     const marker = L.circleMarker(latitudeLongitude(node), { radius: 3, color: '#87958a', weight: 1.5, fillColor: '#fff', fillOpacity: 1 }).addTo(nodeLayer);
-    marker.bindTooltip(nodeName(node.id));
-    marker.on('click', (event) => {
-      L.DomEvent.stopPropagation(event);
-      if (picking) { map.fire('click', { latlng: marker.getLatLng() }); return; }
-      chooseNode(node.id, Boolean(event.originalEvent?.shiftKey));
-    });
+    marker.bindTooltip(node.tags.name ?? 'Walking path junction');
+    marker.on('click', () => { if (picking) map.fire('click', { latlng: marker.getLatLng() }); });
   }
-  populateSelects();
-  const defaults = mode === 'sample' ? { from: 1, to: 5 } : liveEndpoints();
-  setSelectedNode($('#origin'), defaults.from);
-  setSelectedNode($('#destination'), defaults.to);
-  if (mode === 'sample') seedReports();
-  renderIncidents();
-  updateRouteFromForm(false);
-  fitArea();
+  // Start with an example real campus route; both endpoints can be replaced with map pins.
+  if (!routeEndpoints.origin) {
+    for (const [i,kind] of ['origin','destination'].entries()) {
+      routeEndpoints[kind] = defaults[i].coordinate; endpointLabels[kind] = CORNELL_PLACES[i].name;
+    }
+  }
+  if (firstLoad) seedReports();
+  renderIncidents(); renderEndpoints(); renderRoute();
+  $('#area-name').textContent = 'Cornell, Ithaca';
+  $('#data-badge').innerHTML = '<span class="status-dot"></span>Cornell campus<span class="badge-divider"></span><span>OpenStreetMap</span>';
+  $('#report-caption').textContent = 'Sample incidents + your reports · this session';
+  $('#status-text').textContent = `Real Cornell paths · OSM snapshot ${version.slice(0,10)} · reports saved in this session`;
 }
 
 function seedReports() {
   const now = Date.now() / 1000;
-  const examples = [
-    ['closure', 540, 484, 4 * 60, 'Library Walk · sample'],
-    ['hazard', 340, 480, 19 * 60, 'West Library Walk · sample'],
-    ['uneven', 710, 339, 42 * 60, 'Goldwin Smith Walk · sample'],
-  ];
-  for (const [category, x, y, age, locationName] of examples) {
-    const location = sampleCoordinate(x, y);
-    const match = index.nearest(location);
+  const examples = [['closure', CORNELL_PLACES[3], 4 * 60], ['hazard', CORNELL_PLACES[0], 19 * 60], ['uneven', CORNELL_PLACES[4], 42 * 60]];
+  let added = 0;
+  for (const [category, place, age] of examples) {
+    if ([...reports.values()].some((item) => item.source === 'sample' && item.category === category)) continue;
+    const match = index.nearest(place, { maxDistanceMeters: 40 });
+    if (!match) continue;
     const definition = INCIDENT_CATEGORIES[category];
     const event = costs.recordEvent(match.edgeIds, { ...definition, timestamp: now - age,
-      coordinate: { lat: location.lat, lng: location.lon } });
-    reports.set(event.id, { event, edgeIds: match.edgeIds, category, source: 'sample', locationName });
+      coordinate: { lat: match.coordinate.lat, lng: match.coordinate.lon } });
+    reports.set(event.id, { event, edgeIds: match.edgeIds, category, source: 'sample', locationName: `Near ${place.name} · sample` });
+    added++;
   }
+  return added;
 }
-
-function updateRouteFromForm(fit) {
-  const from = nodeId($('#origin').value), to = nodeId($('#destination').value);
-  routeEndpoints = { from, to };
-  renderRoute(fit);
-}
+$('#add-samples').addEventListener('click', () => {
+  if (!graph) { notify('Load Cornell walking paths first.'); return; }
+  const added = seedReports(); renderIncidents(); renderRoute();
+  notify(added ? `${added} sample incidents added on actual campus paths.` : 'All three sample incidents are already on the map.');
+});
 function renderRoute(fit = false) {
-  if (!routeEndpoints) return;
-  const { from, to } = routeEndpoints;
-  const now = Date.now() / 1000;
-  const route = shortestPath(graph, from, to, { costs, timestamp: now });
+  if (!graph) return;
+  const { origin, destination } = routeEndpoints;
   routeLayer.clearLayers();
-  $('#route-error').hidden = Boolean(route);
-  $('#route-summary').hidden = !route;
-  if (!route) { $('#route-error').textContent = 'No walking route is available between these points. Try another destination or check active closures.'; return; }
-  const geometry = [];
-  const segments = new Map(graph.segments.map((segment) => [segment.id, segment]));
-  for (const edgeId of route.edgeIds) {
-    const edge = graph.edges.get(edgeId);
-    const points = segments.get(edge.segmentId).geometry;
-    geometry.push(...(edge.direction === 'backward' ? [...points].reverse() : points).map(latitudeLongitude));
+  if (!origin || !destination) {
+    $('#route-summary').hidden = true; $('#route-error').hidden = true; return;
   }
+  const route = routeBetweenPins(graph,index,origin,destination,{ costs });
+  $('#route-error').hidden = route.status === 'ok'; $('#route-summary').hidden = route.status !== 'ok';
+  if (route.status !== 'ok') {
+    $('#route-error').textContent = route.status === 'off-path' ? 'Move your pin closer to a Cornell walking path.' : 'No connected walking route is available. Try a nearby path or check active closures.';
+    return;
+  }
+  const geometry = route.geometry.map(latitudeLongitude);
   if (geometry.length) {
-    L.polyline(geometry, { color: '#fff', weight: 9, opacity: 0.95, lineJoin: 'round' }).addTo(routeLayer);
-    L.polyline(geometry, { color: '#2459e0', weight: 4, opacity: 1, lineJoin: 'round' }).addTo(routeLayer);
+    L.polyline(geometry, { color: '#fff', weight: 9, opacity: 0.95, lineJoin: 'round', interactive: false }).addTo(routeLayer);
+    L.polyline(geometry, { color: '#2459e0', weight: 4, opacity: 1, lineJoin: 'round', interactive: false }).addTo(routeLayer);
+    for (const [point,snap] of [[origin,route.from],[destination,route.to]]) {
+      if (haversine(point,snap) > 1) L.polyline([latitudeLongitude(point),latitudeLongitude(snap)], { color: '#2459e0', weight: 2, dashArray: '4 5', interactive: false }).addTo(routeLayer);
+    }
   }
-  const origin = graph.nodes.get(from), destination = graph.nodes.get(to);
-  for (const [coordinate, label, end] of [[origin, 'A', false], [destination, 'B', true]]) {
-    L.marker(latitudeLongitude(coordinate), { icon: L.divIcon({ className: '', html: `<span class="endpoint-icon ${end ? 'end' : ''}">${label}</span>`, iconSize: [30,30], iconAnchor: [15,15] }), zIndexOffset: 1000, title: `${end ? 'Destination' : 'Start'}: ${nodeName(coordinate.id)}` }).addTo(routeLayer);
-  }
-  const durationSeconds = route.edgeIds.reduce((sum, id) => sum + costs.baselineCostSeconds(id, now), 0);
-  $('#route-minutes').textContent = String(Math.max(from === to ? 0 : 1, Math.ceil(durationSeconds / 60)));
+  $('#route-minutes').textContent = String(route.distanceMeters < 1 ? 0 : Math.max(1, Math.ceil(route.durationSeconds / 60)));
   $('#route-distance').textContent = route.distanceMeters >= 1000 ? `${(route.distanceMeters / 1000).toFixed(1)} km` : `${Math.round(route.distanceMeters)} m`;
-  $('#route-context').textContent = from === to ? 'You’re already at your destination.' : 'Current reports are considered along this route.';
-  if (fit && geometry.length) map.fitBounds(L.latLngBounds(geometry).pad(0.2), { animate: !reducedMotion.matches, padding: [70,80] });
+  $('#route-context').textContent = route.distanceMeters < 1 ? 'Your start and destination are at the same point.' : 'Follows campus paths and considers current reports.';
+  if (fit && geometry.length) {
+    viewIntent = 'route'; map.invalidateSize();
+    map.fitBounds(L.latLngBounds([...geometry,latitudeLongitude(origin),latitudeLongitude(destination)]).pad(0.2), { animate: !reducedMotion.matches, padding: [70,80], maxZoom: 18 });
+  }
 }
-$('#route-form').addEventListener('submit', (event) => { event.preventDefault(); updateRouteFromForm(true); });
+$('#route-form').addEventListener('submit', (event) => {
+  event.preventDefault(); stopPicking();
+  if (!routeEndpoints.origin || !routeEndpoints.destination) { notify('Choose your starting point and destination on the map.'); return; }
+  renderRoute(true);
+  if (!$('#route-summary').hidden && window.matchMedia('(max-width: 767px)').matches) $('#map').scrollIntoView({ block: 'center', behavior: reducedMotion.matches ? 'instant' : 'smooth' });
+});
 $('#swap-route').addEventListener('click', () => {
-  const origin = $('#origin').value; $('#origin').value = $('#destination').value; $('#destination').value = origin;
-  updateRouteFromForm(false);
+  stopPicking();
+  [routeEndpoints.origin,routeEndpoints.destination] = [routeEndpoints.destination,routeEndpoints.origin];
+  [endpointLabels.origin,endpointLabels.destination] = [endpointLabels.destination,endpointLabels.origin];
+  renderEndpoints(); renderRoute();
 });
 
 function allEvents() {
@@ -249,7 +246,7 @@ function reportPopup(event) {
   const definition = definitionFor(event);
   const container = document.createElement('div');
   const heading = document.createElement('h3'); heading.textContent = definition.label;
-  const detail = document.createElement('p'); detail.textContent = metadata?.source === 'sample' ? 'Illustrative report in the sample area.' : 'Reported in this session.';
+  const detail = document.createElement('p'); detail.textContent = metadata?.source === 'sample' ? 'Fictional sample incident on a real Cornell path.' : 'Reported in this session.';
   const age = document.createElement('p'); age.textContent = `${ageLabel(event.timestamp, Date.now() / 1000)} · ${event.initial_penalty === Infinity ? 'Path is impassable' : 'Influences walking routes'}`;
   const actions = document.createElement('div'); actions.className = 'popup-actions';
   const confirm = document.createElement('button'); confirm.textContent = 'Still here';
@@ -297,6 +294,7 @@ function renderIncidents() {
     if (!marker) {
       marker = L.marker(latitudeLongitude(event.coordinate), { icon: pinIcon, title: definition.label, keyboard: true, zIndexOffset: 500 }).addTo(hazardLayer);
       marker.bindPopup(() => reportPopup(allEvents().find((item) => item.id === event.id) ?? event));
+      marker.on('click', () => { if (picking) map.fire('click', { latlng: marker.getLatLng() }); });
       pins.set(event.id, marker);
     } else {
       const visual = marker.getElement()?.querySelector('.hazard-pin');
@@ -323,15 +321,15 @@ function setReportLocation(location) {
   reportLocation = Object.freeze({ ...location });
   const match = index.nearest(location, { maxDistanceMeters: 40 });
   const precise = location.source !== 'device' || location.accuracyMeters <= 50;
-  const valid = Boolean(match) && precise;
+  const valid = Boolean(match) && precise && withinCornell(location);
   for (const button of document.querySelectorAll('[data-category]')) button.disabled = !valid;
   $('#report-location').textContent = valid ? (location.source === 'device' ? 'Location captured. Tap a category to report.' : 'Map point captured. Tap a category to report.') : 'This location needs a little help.';
   $('#coordinate-label').textContent = `${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}${location.source === 'device' ? ` · ±${Math.round(location.accuracyMeters)} m` : ' · chosen on map'}`;
   $('#report-location-error').hidden = valid;
-  $('#report-location-error').textContent = !precise ? 'Location is too imprecise. Choose a point on the map instead.' : 'You’re outside the loaded walking paths. Load your local area or choose a map point.';
+  $('#report-location-error').textContent = !precise ? 'Location is too imprecise. Choose a point on the map instead.' : 'Choose a point on a Cornell walking path. Coverage is limited to campus.';
 }
 $('#report-trigger').addEventListener('click', async () => {
-  picking = false; $('#pick-banner').hidden = true;
+  stopPicking(); locateGeneration++;
   const generation = ++reportGeneration;
   reportLocation = null;
   for (const button of document.querySelectorAll('[data-category]')) button.disabled = true;
@@ -350,17 +348,24 @@ $('#report-trigger').addEventListener('click', async () => {
 });
 $('#report-dialog').addEventListener('close', () => { reportGeneration++; $('#report-trigger').setAttribute('aria-expanded', 'false'); });
 $('#choose-map-point').addEventListener('click', () => {
-  closeDialog('report-dialog'); picking = true; $('#pick-banner').hidden = false;
-  $('#map').focus();
+  closeDialog('report-dialog'); startPicking('report');
 });
-$('#cancel-pick').addEventListener('click', () => { picking = false; $('#pick-banner').hidden = true; $('#report-trigger').focus(); });
+$('#cancel-pick').addEventListener('click', () => {
+  const previous = picking; stopPicking(); $(`#${previous === 'report' ? 'report-trigger' : previous ?? 'origin'}`).focus({ preventScroll: true });
+});
 map.on('click', ({ latlng }) => {
   if (!picking) return;
-  picking = false; $('#pick-banner').hidden = true;
-  setReportLocation({ lat: latlng.lat, lon: latlng.lng, timestamp: Date.now() / 1000, source: 'map', accuracyMeters: 0 });
+  const kind = picking, coordinate = { lat: latlng.lat, lon: latlng.lng };
+  if (kind !== 'report') {
+    if (setEndpoint(kind,coordinate)) { stopPicking(); notify(`${kind === 'origin' ? 'Starting point' : 'Destination'} pin placed. You can drag it to adjust.`); }
+    return;
+  }
+  if (!withinCornell(coordinate)) { notify('Place your report within Cornell campus.'); return; }
+  stopPicking();
+  setReportLocation({ ...coordinate, timestamp: Date.now() / 1000, source: 'map', accuracyMeters: 0 });
   $('#report-dialog').showModal(); $('#report-trigger').setAttribute('aria-expanded', 'true');
 });
-// Leaflet exposes keyboard panning; Enter places a fallback report at the map center.
+// Leaflet supports keyboard panning; Enter drops the armed pin at the map center.
 $('#map').addEventListener('keydown', (event) => {
   if (!picking) return;
   if (event.key === 'Escape') $('#cancel-pick').click();
@@ -382,64 +387,91 @@ for (const button of document.querySelectorAll('[data-category]')) button.addEve
 });
 
 function showLocation(location) {
+  if (!withinCornell(location)) throw new Error('Your location is outside Cornell coverage. Choose a campus landmark or show the entire campus.');
   locationMarker?.remove(); locationCircle?.remove();
   locationCircle = L.circle(latitudeLongitude(location), { radius: location.accuracyMeters, color: '#2459e0', weight: 1, opacity: 0.2, fillOpacity: 0.06 }).addTo(map);
   locationMarker = L.marker(latitudeLongitude(location), { icon: L.divIcon({ className: '', html: '<span class="user-location"></span>', iconSize: [18,18], iconAnchor: [9,9] }), title: 'Your device location' }).addTo(map);
+  viewIntent = 'point';
   map.setView(latitudeLongitude(location), 17, { animate: !reducedMotion.matches });
 }
 $('#locate').addEventListener('click', async () => {
-  const button = $('#locate'); button.disabled = true;
-  try { showLocation(await captureDeviceLocation()); } catch (error) { notify(error.message); }
+  const button = $('#locate'), generation = ++locateGeneration; button.disabled = true;
+  try { const location = await captureDeviceLocation(); if (generation === locateGeneration) showLocation(location); }
+  catch (error) { if (generation === locateGeneration) notify(error.message); }
   finally { button.disabled = false; }
 });
 
-async function loadArea(bounds) {
-  if (loadingArea) return;
-  if (bounds.north - bounds.south > 0.04 || bounds.east - bounds.west > 0.04) throw new Error('Zoom in to a neighborhood before loading walking paths.');
-  const generation = ++areaGeneration;
+async function loadArea({ recenter = true } = {}) {
+  if (!areaPromise) areaPromise = reloadCampus().finally(() => { areaPromise = null; });
+  await areaPromise;
+  if (recenter) fitArea();
+}
+async function reloadCampus() {
   loadingArea = true;
-  for (const id of ['load-visible','load-nearby']) $(`#${id}`).disabled = true;
-  $('#load-visible').textContent = 'Loading walking paths…';
-  $('#area-error').hidden = true;
+  for (const id of ['load-visible','load-nearby','restore-demo']) $(`#${id}`).disabled = true;
+  $('#load-visible').textContent = 'Loading Cornell paths…'; $('#area-error').hidden = true;
   try {
-    const { graph: nextGraph } = await loadRoutingZone(bounds);
-    if (generation !== areaGeneration) return;
-    if (!nextGraph.edges.size) throw new Error('No pedestrian paths were found in this view. Try another area.');
-    const streetNames = new Map();
-    for (const edge of nextGraph.edges.values()) {
-      if (edge.tags.name) { streetNames.set(edge.from, edge.tags.name); streetNames.set(edge.to, edge.tags.name); }
+    const data = await fetchCampus();
+    if (!graph || snapshotVersion !== data.waymark.fetchedAt) {
+      const nextGraph = buildWalkingGraph(data);
+      if (!nextGraph.edges.size) throw new Error('The Cornell snapshot has no walking paths.');
+      // Keep reports attached to their real coordinates when a refreshed snapshot changes edge IDs.
+      const savedReports = graph ? allEvents().map((event) => ({ ...reports.get(event.id), event })) : [];
+      setGraph(nextGraph,data.waymark.fetchedAt);
+      for (const item of savedReports) {
+        const match = index.nearest({ lat: item.event.coordinate.lat, lon: item.event.coordinate.lng }, { maxDistanceMeters: 40 });
+        if (!match) continue;
+        const event = costs.recordEvent(match.edgeIds,item.event);
+        reports.set(event.id,{ ...item,event,edgeIds: match.edgeIds });
+      }
+      renderIncidents(); renderRoute();
     }
-    const names = new Map([...nextGraph.nodes].map(([id,node], i) => [id, node.tags.name ?? streetNames.get(id) ?? `Map point ${i + 1}`]));
-    setGraph(nextGraph, names, 'live');
-    closeDialog('area-dialog'); notify('Local walking paths loaded. Choose your start and destination.');
+    $('#map-error').hidden = Boolean(failedTiles === 0);
   } finally {
     loadingArea = false;
-    for (const id of ['load-visible','load-nearby']) $(`#${id}`).disabled = false;
-    $('#load-visible').innerHTML = `${icon('layers')}Load area in view`;
+    for (const id of ['load-visible','load-nearby','restore-demo']) $(`#${id}`).disabled = false;
+    $('#load-visible').innerHTML = `${icon('layers')}Reload Cornell map`;
   }
 }
 function areaError(error) { $('#area-error').textContent = error.message; $('#area-error').hidden = false; }
 $('#load-visible').addEventListener('click', async () => {
-  const bounds = map.getBounds();
-  try { await loadArea({ south: bounds.getSouth(), west: bounds.getWest(), north: bounds.getNorth(), east: bounds.getEast() }); }
+  try { await loadArea(); closeDialog('area-dialog'); notify('Cornell map loaded. Your pins and reports are preserved.'); }
   catch (error) { areaError(error); }
 });
 $('#load-nearby').addEventListener('click', async () => {
-  $('#load-nearby').disabled = true;
+  const generation = ++nearbyGeneration; $('#load-nearby').disabled = true;
   try {
     const location = await captureDeviceLocation();
-    await loadArea({ south: location.lat - 0.006, north: location.lat + 0.006, west: location.lon - 0.008, east: location.lon + 0.008 });
-    showLocation(location);
-  } catch (error) { areaError(error); }
-  finally { $('#load-nearby').disabled = false; }
+    if (generation !== nearbyGeneration) return;
+    if (!withinCornell(location)) throw new Error('Your location is outside Cornell coverage. Choose a landmark below or show the entire campus.');
+    await loadArea({ recenter: false });
+    if (generation !== nearbyGeneration) return;
+    showLocation(location); closeDialog('area-dialog'); notify('Cornell paths loaded around your location.');
+  } catch (error) { if (generation === nearbyGeneration) areaError(new Error(error.message.replace('Choose a point on the map instead.','Choose a campus landmark below or show the entire campus.'))); }
+  finally { if (generation === nearbyGeneration) $('#load-nearby').disabled = false; }
 });
-function restoreSample() {
-  areaGeneration++;
-  const { graph: sampleGraph, places } = createSampleArea(); setGraph(sampleGraph, places, 'sample');
+$('#area-dialog').addEventListener('close', () => { nearbyGeneration++; if (!loadingArea) $('#load-nearby').disabled = false; });
+$('#restore-demo').addEventListener('click', async () => {
+  try { if (!graph) await loadArea(); fitArea(); closeDialog('area-dialog'); notify('Showing Cornell campus.'); }
+  catch (error) { areaError(error); }
+});
+for (const place of CORNELL_PLACES) {
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'button button-light'; button.textContent = place.name;
+  button.addEventListener('click', async () => {
+    try {
+      if (!graph) await loadArea({ recenter: false });
+      viewIntent = 'point'; map.setView(latitudeLongitude(place),18,{ animate: !reducedMotion.matches }); closeDialog('area-dialog');
+      notify(`Showing ${place.name}. Choose a route field to drop a pin.`);
+    } catch (error) { areaError(error); }
+  });
+  $('#campus-places').append(button);
 }
-$('#restore-demo').addEventListener('click', () => { restoreSample(); closeDialog('area-dialog'); notify('Sample area restored.'); });
-
-restoreSample();
-const refresh = setInterval(() => { renderIncidents(); renderRoute(); }, 10000);
-window.addEventListener('pagehide', () => { clearInterval(refresh); clearTimeout(toastTimer); costs.dispose(); });
-new ResizeObserver(() => map.invalidateSize()).observe($('#map'));
+loadArea().catch((error) => { $('#map-error').hidden = false; $('#map-error').textContent = error.message; });
+const refresh = setInterval(() => { if (costs) { renderIncidents(); renderRoute(); } },10000);
+window.addEventListener('pagehide', () => { clearInterval(refresh); clearTimeout(toastTimer); costs?.dispose(); });
+new ResizeObserver(() => {
+  map.invalidateSize();
+  if (picking) return;
+  if (viewIntent === 'route' && graph) renderRoute(true);
+  else if (viewIntent === 'campus') fitArea();
+}).observe($('#map'));

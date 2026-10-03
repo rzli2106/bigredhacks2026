@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.js",
+    "map:refresh": "node scripts/refresh-cornell.js",
     "test": "node --test",
     "routing:benchmark": "node scripts/benchmark-routing.js",
     "routing:ingest": "node scripts/ingest-routing.js"

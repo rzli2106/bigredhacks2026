@@ -8,6 +8,7 @@ export { EdgeIndex } from './edge-index.js';
 export { haversine } from './geo.js';
 export { DynamicEdgeCosts, EVENT_DEFAULTS } from './dynamic-cost.js';
 export { shortestPath } from './shortest-path.js';
+export { routeBetweenPins } from './pinned-route.js';
 export { analyzePassage, extractDeflections, spatialEntropy } from './spatial-evidence.js';
 export { DisambiguationEngine, DISAMBIGUATION_DEFAULTS } from './disambiguation.js';
 

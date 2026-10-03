@@ -32,10 +32,11 @@ class MinHeap {
 }
 
 /** Dijkstra using nonnegative meter costs frozen at the route request time. */
-export function shortestPath(graph, from, to, { costs, timestamp } = {}) {
+export function shortestPath(graph, from, to, { costs, timestamp, weight: customWeight } = {}) {
   if (!graph.nodes.has(from) || !graph.nodes.has(to)) throw new Error('Route endpoints must be graph node IDs.');
   if (costs && costs.graph !== graph) throw new Error('Cost registry belongs to a different graph.');
-  const weight = costs ? costs.evaluator(timestamp) : (id) => graph.edges.get(id).distanceMeters;
+  if (customWeight && costs) throw new Error('Supply either a cost registry or a weight callback.');
+  const weight = customWeight ?? (costs ? costs.evaluator(timestamp) : (id) => graph.edges.get(id).distanceMeters);
   const distances = new Map([[from, 0]]);
   const previous = new Map();
   const heap = new MinHeap();
