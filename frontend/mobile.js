@@ -12,6 +12,7 @@ import { readPairingLink } from './pairing.js';
 const $ = selector => document.querySelector(selector);
 let pairing, transport, rawTransport, navigation, healthTimer, location, locationStart;
 let sharing = false, sharingGeneration = 0, locationGeneration = 0, sent = 0;
+let nativeMotionSeen = false;
 let stopLocation = () => {}, lastMotion = 0, lastUnsafeMotion = 0, lastShock = 0, lastPassage = 0;
 let reportLocation, reportCategory, reportPayload, reportMap, reportMarker, reportGeneration = 0, reportSending = false;
 const locations = [], analyzer = new HealthAnalyzer();
@@ -63,7 +64,10 @@ const Motion = nativePlatform() ? NativeMotionService : MotionService;
 const motion = new Motion({
   bridge: Health, config: { rotationLimitRadS: SHOCK_GATE.gyroLimitDegS * Math.PI / 180 },
   onRawSample: sample => rawTransport?.enqueue(sample),
-  onSamples: () => { lastMotion = Date.now() / 1000; },
+  onSamples: () => {
+    lastMotion = Date.now() / 1000;
+    if (nativePlatform() && !nativeMotionSeen) { nativeMotionSeen = true; $('#sensor-status').textContent = 'Motion sensors active'; }
+  },
   onStatus: status => {
     if (status.state === 'sample-dropped') lastUnsafeMotion = Date.now() / 1000;
     if (status.state === 'listening') $('#sensor-status').textContent = 'Motion permission granted · waiting for sensor samples';
@@ -89,7 +93,11 @@ async function submitPassage() {
 }
 async function readHealth() {
   const activeTransport = transport;
-  try { const { samples } = await Health.readSamples(); if (!sharing || activeTransport !== transport) return; for (const event of analyzer.ingest(samples, locations)) activeTransport.enqueue(event); }
+  try {
+    const { samples } = await Health.readSamples(); if (!sharing || activeTransport !== transport) return;
+    const events = analyzer.ingest(samples, locations); for (const event of events) activeTransport.enqueue(event);
+    $('#health-status').textContent = samples.length ? `Health measurements checked · ${events.length ? 'terrain changes matched to location' : 'no new terrain changes'}` : 'No new health measurements received.';
+  }
   catch (error) { if (sharing && activeTransport === transport) $('#health-status').textContent = `Health: ${error.message}`; }
 }
 $('#start').onclick = async () => {
@@ -97,6 +105,7 @@ $('#start').onclick = async () => {
   if (!pairing) { message('Scan a Connect Phone QR code or paste its pairing link first.'); openPairing(); return; }
   if (!window.isSecureContext) { message('Open this phone page over HTTPS to enable motion and location.'); return; }
   $('#start').disabled = true; sharing = true; const generation = ++sharingGeneration;
+  nativeMotionSeen = false;
   // iOS permission request runs directly in this tap, before any await/network call.
   const motionRequest = motion.start().catch(error => {
     if (generation !== sharingGeneration) return;
@@ -116,7 +125,7 @@ $('#start').onclick = async () => {
       if (availability.available) {
         await Health.requestPermissions(); if (!sharing || generation !== sharingGeneration) return;
         await Health.startMonitoring(); if (!sharing || generation !== sharingGeneration) { await Health.stopMonitoring(); return; }
-        healthTimer = setInterval(readHealth, 30000); readHealth(); $('#health-status').textContent = 'Native health access requested · fresh samples matched to location';
+        healthTimer = setInterval(readHealth, 30000); readHealth(); $('#health-status').textContent = 'Native health access requested · waiting for measurements';
       } else $('#health-status').textContent = availability.reason || 'Native health is unavailable.';
     }
   } catch (error) { if (generation === sharingGeneration) $('#health-status').textContent = error.message; }
