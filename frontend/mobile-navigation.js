@@ -8,7 +8,7 @@ const $ = selector => document.querySelector(selector);
 export class MobileNavigation {
   constructor({ api, getLocation, ensureLocation, notify }) {
     Object.assign(this, { getLocation, ensureLocation, notify });
-    this.api = api || configuration().api; this.alerts = new RouteAlerts(); this.requestId = 0;
+    this.api = api || configuration().api; this.alerts = new RouteAlerts(); this.requestId = 0; this.planningId = 0;
     this.snapshot = null; this.options = null; this.active = null; this.pending = [];
     this.audio = new Audio('/public/chime.wav'); this.audio.volume = .25; this.sound = true;
     const L = window.L;
@@ -107,7 +107,7 @@ export class MobileNavigation {
     if (this.destinationMarker) this.destinationMarker.setLatLng([point.lat, point.lon]);
     else this.destinationMarker = window.L.circleMarker([point.lat, point.lon], { radius: 9, color: 'white', weight: 3, fillColor: '#192c3b', fillOpacity: 1 }).addTo(this.map).bindTooltip('Destination');
   }
-  cancelRequest() { this.requestId++; this.controller?.abort(); this.loading = false; }
+  cancelRequest() { this.requestId++; this.planningId++; this.controller?.abort(); this.loading = false; $('#find-routes').disabled = false; }
   queueRefresh() {
     clearTimeout(this.refreshTimer);
     this.refreshScheduled = true;
@@ -120,17 +120,17 @@ export class MobileNavigation {
     this.active = null; this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true;
     $('#return-to-map').hidden = true;
     $('#find-routes').disabled = true; $('#route-status').textContent = 'Finding walking routes…';
-    const generation = this.requestId;
+    const generation = this.planningId;
     try {
       const start = $('#start-location').value.trim();
       this.liveStart = !start || /^(my live location|current location|gps)$/i.test(start);
       if (!start || /^(my live location|current location|gps)$/i.test(start)) await this.ensureLocation();
-      if (generation !== this.requestId) return;
+      if (generation !== this.planningId) return;
       if (!$('#destination-location').value.trim()) throw new Error('Choose a destination or tap it on the map.');
       this.from = resolvePlace(start, this.getLocation()); this.to = resolvePlace($('#destination-location').value, this.getLocation());
       this.markStart(this.from); this.markDestination(this.to); await this.refresh(true);
-    } catch (error) { if (generation === this.requestId && error.name !== 'AbortError') $('#route-status').textContent = error.message; }
-    finally { $('#find-routes').disabled = false; }
+    } catch (error) { if (generation === this.planningId && error.name !== 'AbortError') $('#route-status').textContent = error.message; }
+    finally { if (generation === this.planningId) $('#find-routes').disabled = false; }
   }
   async refresh(newTrip = false) {
     if (!this.from || !this.to) return;
