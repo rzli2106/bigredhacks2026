@@ -3,6 +3,7 @@ import { CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
 import { PlaceSearch } from './place-search.js';
 import { resolvePlace, hazardName, RouteAlerts, routeMinutes, etaDelta, hazardAhead, remainingSeconds, sameRoute, routeHasClosure } from './navigation-state.js';
 import { haversine } from '../src/routing/geo.js';
+import { incidentAppearance } from '../src/ui/reporting.js';
 
 const $ = selector => document.querySelector(selector);
 export class MobileNavigation {
@@ -214,9 +215,13 @@ export class MobileNavigation {
     this.pending = [...this.pending.filter(event => ids.has(event.id)), ...fresh].filter((event, i, all) => all.findIndex(other => other.id === event.id) === i);
     this.hazards.clearLayers();
     for (const event of snapshot.events) {
+      const appearance = incidentAppearance(event, snapshot.time);
       const marker = window.L.circleMarker([event.coordinate.lat, event.coordinate.lng], { radius: 8, color: 'white', weight: 2,
-        fillColor: event.blocked ? '#c54136' : '#e3832b', fillOpacity: .9 }).addTo(this.hazards);
-      const label = document.createElement('span'); label.textContent = hazardName(event); marker.bindTooltip(label);
+        fillColor: appearance.color, fillOpacity: appearance.opacity, opacity: appearance.opacity }).addTo(this.hazards);
+      const label = document.createElement('span');
+      label.textContent = `${hazardName(event)} · ${event.blocked ? 'Active closure' : appearance.fraction > .5 ? 'Recent report' : 'Fading report'}`; marker.bindTooltip(label);
+      const element = marker.getElement();
+      if (element) { element.setAttribute('role', 'img'); element.setAttribute('tabindex', '0'); element.setAttribute('aria-label', label.textContent); }
     }
     if (changed && this.active) { this.renderRoutes(); this.queueRefresh(); }
     if (fresh.length) { this.renderAlert(true); this.chime(); }

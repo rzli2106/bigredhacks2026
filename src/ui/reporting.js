@@ -27,7 +27,7 @@ export function captureDeviceLocation(geolocation = globalThis.navigator?.geoloc
 
 export function incidentAppearance(event, time) {
   const age = Math.max(0, time - event.timestamp);
-  if (event.initial_penalty === Infinity) {
+  if (event.blocked || event.initial_penalty === Infinity) {
     return { fraction: 1, opacity: 1, color: '#c54136', penalty: Infinity };
   }
   const fraction = 2 ** (-age / event.half_life);
