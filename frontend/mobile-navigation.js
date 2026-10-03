@@ -1,5 +1,6 @@
 import { request, subscribe, configuration } from './connection.js';
-import { CORNELL_PLACES, CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
+import { CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
+import { PlaceSearch } from './place-search.js';
 import { resolvePlace, hazardName, RouteAlerts, routeMinutes, etaDelta, hazardAhead, remainingSeconds, sameRoute } from './navigation-state.js';
 import { haversine } from '../src/routing/geo.js';
 
@@ -15,14 +16,20 @@ export class MobileNavigation {
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(this.map);
     L.control.zoom({ position: 'bottomright' }).addTo(this.map);
     this.routes = L.layerGroup().addTo(this.map); this.hazards = L.layerGroup().addTo(this.map);
-    for (const place of CORNELL_PLACES) {
-      const option = document.createElement('option'); option.value = place.name; $('#campus-places').append(option);
-    }
+    this.searches = [new PlaceSearch($('#start-location'), { live: true }), new PlaceSearch($('#destination-location'))];
+    this.pinTarget = 'end';
+    $('#edit-route').onclick = () => { this.setPlannerOpen(true); $('#start-location').focus(); };
+    for (const target of ['start', 'end']) $('#pin-' + target).onclick = () => {
+      this.pinTarget = target;
+      for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', String(side === target));
+      this.setPlannerOpen(false); $('#edit-route').textContent = `Cancel ${target} pin`;
+    };
     this.map.on('click', ({ latlng }) => {
       if (!withinCornell({ lat: latlng.lat, lon: latlng.lng })) { this.notify('Choose a destination inside Cornell coverage.'); return; }
-      $('#destination-location').value = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
-      this.markDestination({ lat: latlng.lat, lon: latlng.lng });
-      $('#route-status').textContent = 'Destination pinned. Tap Find routes.';
+      const start = this.pinTarget === 'start', point = { lat: latlng.lat, lon: latlng.lng };
+      $(start ? '#start-location' : '#destination-location').value = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
+      if (start) this.markStart(point); else this.markDestination(point);
+      this.setPlannerOpen(true); $('#route-status').textContent = `${start ? 'Start' : 'End'} pinned. Tap Start Route.`;
     });
     $('#route-form').onsubmit = event => { event.preventDefault(); this.unlockAudio(); this.generate(); };
     $('#locate-me').onclick = async () => {
@@ -38,6 +45,19 @@ export class MobileNavigation {
     $('#dismiss-reroute').onclick = () => { this.pending = []; this.hideAlert(); };
     this.resize = new ResizeObserver(() => this.map.invalidateSize()); this.resize.observe($('#navigation-map'));
     this.connect();
+  }
+  setPlannerOpen(open) {
+    for (const search of this.searches) search.close();
+    $('#route-planner').hidden = !open; $('#edit-route').hidden = open;
+    $('#edit-route').setAttribute('aria-expanded', String(open)); $('#edit-route').textContent = 'Edit route';
+    if (open) {
+      this.pinTarget = 'end';
+      for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', 'false');
+    } else { $('#edit-route').focus(); }
+  }
+  markStart(point) {
+    if (this.startMarker) this.startMarker.setLatLng([point.lat, point.lon]);
+    else this.startMarker = window.L.circleMarker([point.lat, point.lon], { radius: 7, color: 'white', weight: 3, fillColor: '#2459e0', fillOpacity: 1 }).addTo(this.map).bindTooltip('Start');
   }
   unlockAudio() {
     if (!this.sound || this.audioUnlocked) return;
@@ -98,7 +118,7 @@ export class MobileNavigation {
       if (generation !== this.requestId) return;
       if (!$('#destination-location').value.trim()) throw new Error('Choose a destination or tap it on the map.');
       this.from = resolvePlace(start, this.getLocation()); this.to = resolvePlace($('#destination-location').value, this.getLocation());
-      this.markDestination(this.to); await this.refresh(true);
+      this.markStart(this.from); this.markDestination(this.to); await this.refresh(true);
     } catch (error) { if (generation === this.requestId && error.name !== 'AbortError') $('#route-status').textContent = error.message; }
     finally { $('#find-routes').disabled = false; }
   }
@@ -118,12 +138,12 @@ export class MobileNavigation {
         $('#route-status').textContent = options.direct.status === 'off-path' ? `The ${options.direct.endpoint} is more than 40 m from a walking path.` : 'No walking connection was found.';
         return;
       }
-      if (newTrip) { this.active = options.direct.hazard_ids.length && options.alternative ? options.alternative : options.direct; this.activeChoice = this.active === options.direct ? 'direct' : 'alternative'; }
+      if (newTrip) { this.active = options.direct.hazard_ids.length && options.alternative ? options.alternative : options.direct; this.activeChoice = this.active === options.direct ? 'direct' : 'alternative'; this.setPlannerOpen(false); }
       this.renderRoutes(newTrip); this.renderAlert(false);
       $('#route-status').textContent = options.alternative ? 'Walking estimates · tap a route to select it' : 'No distinct hazard-free alternative is available.';
     } catch (error) {
       if (id === this.requestId) {
-        $('#route-status').textContent = error.name === 'AbortError' ? 'Route update timed out. Try Find routes again.' : `Route update unavailable. ${error.message}`;
+        $('#route-status').textContent = error.name === 'AbortError' ? 'Route update timed out. Try Start Route again.' : `Route update unavailable. ${error.message}`;
         this.options = null; this.renderAlert(false);
       }
     } finally { clearTimeout(timeout); if (id === this.requestId) { this.loading = false; this.renderAlert(false); } }
@@ -156,7 +176,7 @@ export class MobileNavigation {
     }
     this.renderActive();
     if (fit && this.active.geometry.length > 1) {
-      const panel = $('.route-panel').getBoundingClientRect(), dock = $('.bottom-dock').getBoundingClientRect(), map = $('#navigation-map').getBoundingClientRect();
+      const panel = $($('#route-planner').hidden ? '#edit-route' : '#route-planner').getBoundingClientRect(), dock = $('.bottom-dock').getBoundingClientRect(), map = $('#navigation-map').getBoundingClientRect();
       const landscape = map.width > map.height && map.height < 560;
       this.map.fitBounds(L.latLngBounds(this.active.geometry.map(p => [p.lat, p.lon])), {
         paddingTopLeft: landscape ? [Math.min(panel.right + 12, map.width * .4), 30] : [28, Math.min(panel.bottom + 16, map.height * .45)],
@@ -167,7 +187,7 @@ export class MobileNavigation {
   renderActive() {
     if (!this.active) return;
     $('#active-route').hidden = false;
-    $('#active-route').textContent = `Following ${this.activeChoice} route · ${routeMinutes(remainingSeconds(this.active, this.getLocation()))} min remaining`;
+    $('#active-route').textContent = `${routeMinutes(this.active.durationSeconds)} min walk · ${Math.round(this.active.distanceMeters)} m · ${routeMinutes(remainingSeconds(this.active, this.liveStart ? this.getLocation() : null))} min remaining`;
   }
   onSnapshot(snapshot) {
     const fresh = this.alerts.observe(snapshot, this.active, this.getLocation());

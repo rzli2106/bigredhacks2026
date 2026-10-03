@@ -9,15 +9,19 @@
 <body>
   <main class="phone" aria-label="Live walking navigation">
     <div id="navigation-map" aria-label="Cornell walking map. Tap to choose your destination."></div>
-    <section class="route-panel" aria-label="Walking route planner">
+    <button id="edit-route" class="edit-route" type="button" aria-expanded="true" aria-controls="route-planner" hidden>Edit route</button>
+    <section id="route-planner" class="route-panel" aria-label="Walking route planner">
       <div class="brand-row"><a class="wordmark" href="/">pathpulse<span>.</span></a><span id="map-stream" role="status">Connecting</span><button id="sound-toggle" type="button" aria-pressed="true">Sound on</button></div>
       <form id="route-form">
-        <div class="route-fields"><label for="start-location">Start Location</label><input id="start-location" list="campus-places" value="My live location" autocomplete="off" spellcheck="false" aria-describedby="route-help"><label for="destination-location">Destination</label><input id="destination-location" list="campus-places" placeholder="Campus place or tap the map" autocomplete="off" spellcheck="false" required></div>
-        <datalist id="campus-places"></datalist>
-        <div class="planner-actions"><button id="locate-me" type="button" class="secondary">◎ Locate me</button><button id="find-routes" type="submit" class="primary">Find routes</button></div>
+        <div class="route-fields">
+          <label for="start-location">Start</label><div class="place-field"><input id="start-location" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="start-suggestions" value="My live location" autocomplete="off" spellcheck="false" aria-describedby="route-help"><ul id="start-suggestions" class="place-suggestions" role="listbox" aria-label="Start suggestions" hidden></ul></div>
+          <label for="destination-location">End</label><div class="place-field"><input id="destination-location" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="destination-suggestions" placeholder="Search a Cornell place" autocomplete="off" spellcheck="false" required aria-describedby="route-help"><ul id="destination-suggestions" class="place-suggestions" role="listbox" aria-label="Destination suggestions" hidden></ul></div>
+        </div>
+        <div class="pin-actions"><button id="pin-start" type="button" aria-pressed="false">Pin start on map</button><button id="pin-end" type="button" aria-pressed="false">Pin end on map</button></div>
+        <div class="planner-actions"><button id="locate-me" type="button" class="secondary">Locate me</button><button id="find-routes" type="submit" class="primary">Start Route</button></div>
       </form>
       <p id="route-help" class="small">Cornell places or latitude, longitude · walking routes</p>
-      <p id="route-status" class="small" role="status">Tap the map to pin a destination.</p>
+      <p id="route-status" class="small" role="status">Search a campus place or choose a pin button.</p>
     </section>
     <section id="reroute-alert" class="reroute-alert" aria-label="Route change proposal" aria-live="assertive" hidden>
       <span class="eyebrow">A HEADS-UP ON YOUR WALK</span><p id="reroute-message"></p>

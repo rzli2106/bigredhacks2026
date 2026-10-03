@@ -1,5 +1,7 @@
 name: Native mobility builds
 on:
+  pull_request:
+    paths: ['native/**', 'frontend/**', 'src/**', 'scripts/**', 'package*.json', 'capacitor.config.json', '.github/workflows/native.yml']
   push:
     branches: [main, codex/clearpath-deployment]
     paths: ['native/**', 'frontend/**', 'src/**', 'scripts/**', 'package*.json', 'capacitor.config.json', '.github/workflows/native.yml']
