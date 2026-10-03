@@ -111,10 +111,20 @@ $('#start').onclick = async () => {
     if (generation !== sharingGeneration) return;
     rawTransport?.stop(); $('#sensor-status').textContent = `Motion: ${error.message}`; message(`Motion: ${error.message} Manual reporting remains available.`);
   });
-  transport = new DeviceTransport({ ...pairing, onStatus: status => { $('#connection').textContent = status; }, onRejected: message, onSent: countReport }); transport.start();
+  const onRejected = (reason, status) => {
+    if (generation !== sharingGeneration) return;
+    if ([401, 403].includes(status)) {
+      stopSensors(); pairing = null;
+      $('#connection').textContent = 'Pairing ended';
+      $('#phone-status').textContent = 'Create a new Connect Phone link and paste it below to resume sharing.';
+      $('#pair-link').value = ''; openPairing();
+    }
+    message(reason);
+  };
+  transport = new DeviceTransport({ ...pairing, onStatus: status => { $('#connection').textContent = status; }, onRejected, onSent: countReport }); transport.start();
   if (!nativePlatform()) {
     rawTransport = new RawMotionTransport({ ...pairing, getLocation: () => { try { const point = freshLocation(); return { lat: point.lat, lng: point.lon, accuracy_meters: point.accuracyMeters, timestamp: point.timestamp }; } catch { return null; } },
-      onStatus: status => { $('#sensor-status').textContent = status; }, onSent: countReport }); rawTransport.start();
+      onStatus: status => { $('#sensor-status').textContent = status; }, onRejected, onSent: countReport }); rawTransport.start();
   }
   ensureLocation().catch(error => { if (generation === sharingGeneration) $('#phone-status').textContent = error.message; });
   $('#start').hidden = true; $('#stop').hidden = false;

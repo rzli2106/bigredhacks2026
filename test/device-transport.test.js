@@ -4,7 +4,7 @@ import { DeviceTransport } from '../frontend/connection.js';
 
 const settle = async () => { for (let i=0;i<10;i++) await Promise.resolve(); };
 function fixture(t, { ignoreAbort = false } = {}) {
-  const calls=[],timers=[],statuses=[],sent=[],rejected=[];
+  const calls=[],timers=[],statuses=[],sent=[],rejected=[],rejectedCodes=[];
   t.mock.method(globalThis,'setInterval',()=>1); t.mock.method(globalThis,'clearInterval',()=>{});
   t.mock.method(globalThis,'setTimeout',(callback,ms)=>{const timer={callback,ms,cleared:false};timers.push(timer);return timer;});
   t.mock.method(globalThis,'clearTimeout',timer=>{timer.cleared=true;});
@@ -12,9 +12,9 @@ function fixture(t, { ignoreAbort = false } = {}) {
     const call={url,options,body:JSON.parse(options.body),respond:(body={},status=200)=>resolve({ok:status<400,status,json:async()=>body})};calls.push(call);
     if(!ignoreAbort)options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});
   }));
-  const transport=new DeviceTransport({api:'https://example.test',token:'synthetic-token',deviceId:'synthetic-device',onStatus:s=>statuses.push(s),onSent:s=>sent.push(s),onRejected:s=>rejected.push(s)});
+  const transport=new DeviceTransport({api:'https://example.test',token:'synthetic-token',deviceId:'synthetic-device',onStatus:s=>statuses.push(s),onSent:s=>sent.push(s),onRejected:(s,code)=>{rejected.push(s);rejectedCodes.push(code);}});
   t.after(()=>transport.stop());
-  return {transport,calls,timers,statuses,sent,rejected};
+  return {transport,calls,timers,statuses,sent,rejected,rejectedCodes};
 }
 
 test('heartbeats do not overlap and stopping aborts both heartbeat and report requests',async t=>{
@@ -48,10 +48,10 @@ test('late responses from a stopped generation cannot consume a restarted queue'
 });
 
 test('expired device credentials stop requests and report the pairing error once',async t=>{
-  const {transport,calls,rejected}=fixture(t);transport.start();
+  const {transport,calls,rejected,rejectedCodes}=fixture(t);transport.start();
   calls[0].respond({error:'Pairing expired.'},401);await settle();
   assert.equal(transport.enabled,false);transport.enqueue({timestamp:Date.now()/1000});transport.heartbeat();
-  assert.equal(calls.length,1);assert.deepEqual(rejected,['Pairing expired.']);
+  assert.equal(calls.length,1);assert.deepEqual(rejected,['Pairing expired.']);assert.deepEqual(rejectedCodes,[401]);
 });
 
 test('overflowing a busy queue does not discard an extra unsent report on acknowledgement',async t=>{
@@ -63,7 +63,7 @@ test('overflowing a busy queue does not discard an extra unsent report on acknow
 });
 
  test('rejecting an evicted report preserves the next unsent report',async t=>{
-  const {transport,calls,rejected}=fixture(t);transport.start();calls[0].respond();await settle();
+  const {transport,calls,rejected,rejectedCodes}=fixture(t);transport.start();calls[0].respond();await settle();
   for(let i=0;i<101;i++)transport.enqueue({timestamp:Date.now()/1000,sequence:i});
   calls[1].respond({error:'Invalid report.'},422);await settle();
   assert.equal(calls[2].body.sequence,1);assert.equal(transport.queue.length,100);
