@@ -25,20 +25,10 @@ export class MobileNavigation {
       if (!this.active || this.loading) return;
       clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.refresh(false);
     };
-    for (const target of ['start', 'end']) $('#pin-' + target).onclick = () => {
-      this.pinTarget = target;
-      this.placingPin = true;
-      for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', String(side === target));
-      this.setPlannerOpen(false); $('#edit-route').textContent = `Cancel ${target} pin`;
-    };
-    this.map.on('click', ({ latlng }) => {
-      if ($('#route-planner').hidden && !this.placingPin) return;
-      if (!withinCornell({ lat: latlng.lat, lon: latlng.lng })) { this.notify('Choose a destination inside Cornell coverage.'); return; }
-      const start = this.pinTarget === 'start', point = { lat: latlng.lat, lon: latlng.lng };
-      $(start ? '#start-location' : '#destination-location').value = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
-      if (start) this.markStart(point); else this.markDestination(point);
-      this.setPlannerOpen(true); $('#route-status').textContent = `${start ? 'Start' : 'End'} pinned. Tap Start Route.`;
-    });
+    for (const target of ['start', 'end']) $('#pin-' + target).onclick = () => this.beginPin(target);
+    this.map.on('click', ({ latlng }) => this.placePin({ lat: latlng.lat, lon: latlng.lng }));
+    this.pinKeyboard = event => this.handlePinKey(event);
+    this.map.getContainer().addEventListener('keydown', this.pinKeyboard);
     $('#route-form').onsubmit = event => { event.preventDefault(); this.unlockAudio(); this.generate(); };
     $('#locate-me').onclick = async () => {
       this.unlockAudio();
@@ -59,11 +49,35 @@ export class MobileNavigation {
     $('#route-planner').hidden = !open; $('#edit-route').hidden = open;
     $('#edit-route').setAttribute('aria-expanded', String(open)); $('#edit-route').textContent = 'Edit route';
     $('#return-to-map').hidden = !this.active;
+    $('#pin-help').hidden = open || !this.placingPin; $('#pin-reticle').hidden = open || !this.placingPin;
     if (open) {
       this.pinTarget = 'end';
       this.placingPin = false;
       for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', 'false');
     } else { $('#edit-route').focus(); }
+  }
+  beginPin(target) {
+    this.pinTarget = target; this.placingPin = true;
+    for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', String(side === target));
+    $('#pin-help').textContent = `Choose ${target === 'start' ? 'start' : 'destination'}: tap the map, or use arrow keys then Enter at the crosshair. Escape cancels.`;
+    this.setPlannerOpen(false); $('#edit-route').textContent = `Cancel ${target} pin`;
+    this.map.getContainer().focus();
+  }
+  placePin(point) {
+    if ($('#route-planner').hidden && !this.placingPin) return;
+    if (!withinCornell(point)) { this.notify(`Choose a ${this.pinTarget === 'start' ? 'starting point' : 'destination'} inside Cornell coverage.`); return; }
+    const start = this.pinTarget === 'start';
+    $(start ? '#start-location' : '#destination-location').value = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
+    if (start) this.markStart(point); else this.markDestination(point);
+    this.setPlannerOpen(true); $('#route-status').textContent = `${start ? 'Start' : 'End'} pinned. Tap Start Route.`;
+    $(start ? '#start-location' : '#destination-location').focus();
+    this.searches[start ? 0 : 1]?.close();
+  }
+  handlePinKey(event) {
+    if (!this.placingPin || !['Enter', 'Escape'].includes(event.key)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.key === 'Enter') { const point = this.map.getCenter(); this.placePin({ lat: point.lat, lon: point.lng }); }
+    else { const target = this.pinTarget; this.setPlannerOpen(true); $(target === 'start' ? '#start-location' : '#destination-location').focus(); }
   }
   markStart(point) {
     if (this.startMarker) this.startMarker.setLatLng([point.lat, point.lon]);
@@ -265,5 +279,5 @@ export class MobileNavigation {
     this.active = this.options.alternative; this.activeChoice = 'alternative'; this.pending = []; this.hideAlert(); this.renderRoutes();
     this.notify('Alternative route accepted.');
   }
-  stop() { this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.pause(); }
+  stop() { this.map.getContainer().removeEventListener('keydown', this.pinKeyboard); this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.pause(); }
 }
