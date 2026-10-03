@@ -15,9 +15,9 @@ The `onCandidate` callback receives the peak's monotonic timestamp in millisecon
 3. Linearly interpolate acceleration **magnitudes** onto a **20 ms / 50 Hz** grid. Faster events contribute bracketing values; duplicate and out-of-order timestamps are ignored. Magnitude-first interpolation avoids artificial dips when the coordinate frame rotates.
 4. Calculate absolute acceleration-magnitude difference divided by **0.020 seconds**.
 5. Calibrate a local baseline from the first **10** standardized samples. Outside a pulse, maintain a rolling baseline; freeze it while measuring a pulse. Start a positive pulse above baseline + **0.5 m/s²** and finish when it returns to that floor. Use interpolated crossings at half the peak height **above baseline** for FWHM, avoiding gravity's DC offset.
-6. Emit once only when peak jerk is strictly **greater than 85 m/s³** and FWHM is strictly **less than 45 ms**. Discard unclosed pulses after **300 ms** and recalibrate; use a **250 ms** cooldown after closed pulses to reduce double counting.
+6. Emit once only when peak jerk is strictly **greater than 72.25 m/s³** and FWHM is strictly **less than 45 ms**. Discard unclosed pulses after **300 ms** and recalibrate; use a **250 ms** cooldown after closed pulses to reduce double counting.
 
-The supplied final inequality was truncated; this implementation assumes `jerk > 85 AND FWHM < 45 ms`. Defaults are exported as `DEFAULT_CONFIG`. Baseline, gap, pulse-floor, and cooldown parameters are engineering assumptions introduced for a bounded streaming implementation, not validated physical constants.
+After the requested 15% sensitivity calibration, the implementation uses `jerk > 72.25 AND FWHM < 45 ms`. Defaults are exported as `DEFAULT_CONFIG`. Baseline, gap, pulse-floor, and cooldown parameters are engineering assumptions introduced for a bounded streaming implementation, not validated physical constants.
 
 ## Limits and validation
 
@@ -158,3 +158,9 @@ This entry point extracts heading changes ≥30° after at least 0.5 m of travel
 
 The Step 4 tests cover boundary distances, interpolated trace distance, uncertainty, timestamp/order checks, duplicate passages, shared event updates, clustering versus dispersion, rolling-window expiry, preserved closures, speed-driven route changes, and raw-trace feature extraction. Entropy expresses concentration of observed movement; it does not by itself prove that crowds or physical defects caused it. The thresholds and conservative positioning requirements remain engineering assumptions awaiting field validation.
 
+
+## Mobile route options and consent to reroute
+
+`POST /api/route/options` accepts the existing `{from,to}` pins and returns `{direct,alternative,alternative_reason,revision,instance_id,time}`. `walkingRouteOptions` uses physical distance for the direct comparison route and excludes all active hazard attachments from alternatives. If the paths coincide, up to eight segment exclusions find a distinct walk; no fabricated second route is returned for disconnected or unavoidable hazards. Duration uses traversal speeds plus real connector lengths; virtual-meter hazard penalties do not inflate ETA. Zero-length junction connectors are omitted from returned edge IDs so intersection checks reflect actual traversal.
+
+The phone projects its fresh GPS fix and hazard coordinates along the active route to suppress alerts behind the walker. An ID/timestamp watermark suppresses replay and decay notifications. WebSocket changes refresh route options with bounded request cadence, preserve the selected path, and offer an HTML5 Audio chime plus Accept/Dismiss. Report category metadata is validated against its metric and broadcast publicly with the derived hazard. The GPS reporting pin is frozen at capture; category selection never sends a report, and Confirm Report uses an idempotent event ID for network retries.

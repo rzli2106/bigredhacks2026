@@ -76,6 +76,9 @@ export function routeBetweenPins(graph, index, from, to, { costs, timestamp = Da
   let durationSeconds = 0;
   for (const id of result.edgeIds) {
     const part = virtual.get(id), edge = part ?? graph.edges.get(id);
+    // A pin exactly at a junction can connect through a zero-length portion of
+    // a blocked edge. It is not traversed and must not appear in hazard checks.
+    if (edge.distanceMeters < 1e-8) continue;
     const original = graph.edges.get(part?.originalEdgeId ?? id);
     const segment = segments.get(original.segmentId);
     const points = part?.geometry ?? (edge.direction === 'forward' ? segment.geometry : [...segment.geometry].reverse());

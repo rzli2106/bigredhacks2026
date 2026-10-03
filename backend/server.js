@@ -9,7 +9,7 @@ import { ApiError, TelemetryEngine } from './engine.js';
 import { RawMotionReceiver } from './raw-motion.js';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
-const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
+const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.wav':'audio/wav'};
 const equal=(a,b)=>typeof a==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 export async function createTelemetryServer({ graph, now, allowedOrigins=['http://127.0.0.1:5173','http://localhost:5173','http://127.0.0.1:8000','http://localhost:8000'],
   adminToken=randomBytes(32).toString('hex'), production=false, publicApiUrl='', publicWsUrl='', publicMobileUrl='', staticRoot=resolve(root,'dist'), broadcastMs=5000,
@@ -30,7 +30,7 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
     const token=bearer(request);
     if (equal(token,adminToken)) return;
     const session=sessions.get(token);
-    if (!session||session.expiresAt<=engine.now()) throw new ApiError(401,'Pairing expired. Scan a new Connect Device QR code.');
+    if (!session||session.expiresAt<=engine.now()) throw new ApiError(401,'Pairing expired. Scan a new Connect Phone QR code.');
     if (payload.device_id!==session.deviceId) throw new ApiError(403,'This pairing belongs to another device.');
     session.lastSeen=engine.now();
   }
@@ -113,6 +113,9 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
       }
       if(path==='/api/route'&&request.method==='POST'){
         const data=await body(request);try{const result=engine.route(data.from,data.to);json(response,200,result);}catch(error){throw new ApiError(400,error.message);}return;
+      }
+      if(path==='/api/route/options'&&request.method==='POST'){
+        const data=await body(request);try{json(response,200,engine.routeOptions(data.from,data.to));}catch(error){throw new ApiError(400,error.message);}return;
       }
       if(path==='/runtime-config.js'&&request.method==='GET'){
         response.writeHead(200,{'Content-Type':'text/javascript','Cache-Control':'no-store'});

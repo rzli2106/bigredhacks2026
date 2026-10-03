@@ -50,6 +50,15 @@ test('server rejects tumbling, broad impulses, missing gyro, and GPS-free impact
   }
 });
 
+test('raw receiver accepts a smaller impact above the calibrated 13.6 threshold', () => {
+  const { runner, receiver, batch } = fixture();
+  try {
+    batch.samples = samples(runner.baseTime, [0, 2, 4, 2, 0]);
+    assert.equal(receiver.ingest(batch).events.length, 1);
+    assert.equal(runner.engine.events().length, 1);
+  } finally { runner.dispose(); }
+});
+
 test('invalid batches fail before changing filter state; inactive devices are pruned', () => {
   const { runner, receiver, batch } = fixture();
   try {

@@ -1,8 +1,10 @@
+import { SHOCK_GATE } from './telemetry/policy.js';
+
 /** All timestamps are monotonic milliseconds; acceleration is m/s². */
 export const DEFAULT_CONFIG = Object.freeze({
   samplePeriodMs: 20,
   rotationLimitRadS: 5.2,
-  jerkThreshold: 85,
+  jerkThreshold: SHOCK_GATE.jerkThreshold,
   maxFwhmMs: 45,
   maxGapMs: 60,
   baselineSamples: 10,

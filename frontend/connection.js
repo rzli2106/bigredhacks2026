@@ -37,9 +37,9 @@ export class RawMotionTransport {
     }finally{clearTimeout(timeout);this.running=false;}
   }
 }
-export function subscribe(onSnapshot,onStatus=()=>{}){
+export function subscribe(onSnapshot,onStatus=()=>{},{ws=configuration().ws}={}){
   let socket,timer,closed=false,attempt=0;
-  function connect(){if(closed)return;onStatus('Connecting');socket=new WebSocket(configuration().ws);
+  function connect(){if(closed)return;onStatus('Connecting');socket=new WebSocket(ws);
     socket.onopen=()=>{attempt=0;onStatus('Live');};
     socket.onmessage=event=>{try{const data=JSON.parse(event.data);if(data.type==='snapshot')onSnapshot(data);}catch{onStatus('Stream error');}};
     socket.onclose=()=>{if(closed)return;onStatus('Reconnecting');timer=setTimeout(connect,Math.min(30000,1000*2**attempt++));};

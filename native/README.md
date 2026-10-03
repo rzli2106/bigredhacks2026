@@ -1,6 +1,6 @@
 # Native mobility bridge
 
-The local `pathpulse-health` Capacitor 7 plugin contains Swift HealthKit and Kotlin Health Connect implementations. The phone web interface uses the same transport in a native shell; a browser falls back to Web Motion and two-tap reporting. Node 20 is sufficient for Capacitor 7. Native projects are generated locally and ignored; plugin sources and configuration are tracked.
+The local `pathpulse-health` Capacitor 7 plugin contains Swift HealthKit and Kotlin Health Connect implementations. The phone web interface uses the same transport in a native shell; a browser falls back to Web Motion and GPS-pinned reporting with explicit confirmation. Node 20 is sufficient for Capacitor 7. Native projects are generated locally and ignored; plugin sources and configuration are tracked.
 
 ## iOS
 
@@ -37,7 +37,7 @@ The plugin uses stable `androidx.health.connect:connect-client:1.1.0`, read-only
 
 ## Pair and validate
 
-Set the build-time PUBLIC_* URLs to your production hosts and include `capacitor://localhost` and `https://localhost` in backend CORS. Rebuild/sync after changing URLs. The native shell starts at the bundled `/mobile.html` asset. Native location uses `@capacitor/geolocation`, not an assumption that a WebView exposes browser GPS. Use the observer's QR in Safari/Chrome for browser mode; to use native health, copy its **complete pairing link** into the native app's **Paste a pairing link** field and tap Start sharing. An HTTPS backend is required on the physical phone; `127.0.0.1` points to the phone itself, not your development computer. `npm run sync:local` generates the tunnel link.
+Set the build-time PUBLIC_* URLs to your production hosts and include `capacitor://localhost` and `https://localhost` in backend CORS. Rebuild/sync after changing URLs. The native shell starts at the bundled `/mobile.html` asset. Native location uses `@capacitor/geolocation`, not an assumption that a WebView exposes browser GPS. Use the observer's QR in Safari/Chrome for browser mode; to use native health, copy its **complete pairing link** into the native app's **Paste a pairing link** field and tap Start Sensors. An HTTPS backend is required on the physical phone; `127.0.0.1` points to the phone itself, not your development computer. `npm run sync:local` generates the tunnel link.
 
 Validate permission denial/revocation, empty health stores, a fresh speed change with contemporaneous GPS, a delayed record with no matching fix, app background/foreground, stop sharing, and real hardware motion before relying on detections. The generated iOS SPM and Android projects have both been synced with the local plugin. The current workstation has command-line Swift but no full Xcode or Android SDK, but both platform SDK builds have passed on GitHub Actions: an unsigned iOS simulator app and a signed Android debug APK. Physical-device motion, health permissions/background delivery, and gait measurements remain unverified. iOS installation on a physical phone still requires your Apple signing team.
 
