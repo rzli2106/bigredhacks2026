@@ -1,4 +1,4 @@
-# PathPulse
+# ClearPath
 
 A Cornell pedestrian map that receives derived phone hazards, changes walking routes, and lets evidence decay. Real OpenStreetMap geometry is shipped locally (2,337 nodes / 6,008 directed edges). Live observer and simulation modes have separate state; fictional samples never enter the live feed.
 

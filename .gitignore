@@ -9,4 +9,4 @@ dist/
 /ios/
 /android/
 **/.gradle/
-.pathpulse-local.json
+.clearpath-local.json

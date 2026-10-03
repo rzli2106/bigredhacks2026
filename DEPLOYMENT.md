@@ -33,7 +33,7 @@ For a changed frontend port, add that exact localhost origin to `CORS_ORIGINS` i
 
 ## 2. Local phone sync over HTTPS
 
-Install [ngrok from its official source](https://ngrok.com/download), create/configure your account, and run `ngrok config add-authtoken YOUR_TOKEN`. The token belongs in ngrok's configuration, not this repository. Stop an existing PathPulse dev server, then:
+Install [ngrok from its official source](https://ngrok.com/download), create/configure your account, and run `ngrok config add-authtoken YOUR_TOKEN`. The token belongs in ngrok's configuration, not this repository. Stop an existing ClearPath dev server, then:
 
 ```sh
 npm run sync:local
@@ -60,10 +60,10 @@ Configure:
 | `NODE_ENV` | `production` |
 | `HOST` | `0.0.0.0` |
 | `ADMIN_TOKEN` | Random secret, at least 32 characters; Blueprint generates one |
-| `CORS_ORIGINS` | Exact comma-separated frontend origins, e.g. `https://pathpulse-demo.vercel.app,capacitor://localhost,https://localhost` |
-| `PUBLIC_API_URL` | `https://pathpulse-api.onrender.com` |
-| `PUBLIC_WS_URL` | `wss://pathpulse-api.onrender.com/ws/stream` |
-| `PUBLIC_MOBILE_URL` | `https://pathpulse-demo.vercel.app/mobile` |
+| `CORS_ORIGINS` | Exact comma-separated frontend origins, e.g. `https://clearpath-demo.vercel.app,capacitor://localhost,https://localhost` |
+| `PUBLIC_API_URL` | `https://clearpath-api.onrender.com` |
+| `PUBLIC_WS_URL` | `wss://clearpath-api.onrender.com/ws/stream` |
+| `PUBLIC_MOBILE_URL` | `https://clearpath-demo.vercel.app/mobile` |
 
 Replace examples with the actual URLs from your hosting dashboards. Do not include trailing slashes in origins. Add a Vercel preview origin explicitly if you want that preview to pair; CORS does not allow arbitrary preview domains. The health endpoint `/api/health` must return `ok: true`. WebSocket path: `/ws/stream`.
 
@@ -74,14 +74,14 @@ The service currently keeps reports, device sessions, and rate limits in memory.
 Import the repository into Vercel. `vercel.json` sets build command `npm run build`, output `dist`, and `/mobile → mobile.html`. Set these three **public** build variables:
 
 ```dotenv
-PUBLIC_API_URL=https://pathpulse-api.onrender.com
-PUBLIC_WS_URL=wss://pathpulse-api.onrender.com/ws/stream
-PUBLIC_MOBILE_URL=https://pathpulse-demo.vercel.app/mobile
+PUBLIC_API_URL=https://clearpath-api.onrender.com
+PUBLIC_WS_URL=wss://clearpath-api.onrender.com/ws/stream
+PUBLIC_MOBILE_URL=https://clearpath-demo.vercel.app/mobile
 ```
 
 Never add `ADMIN_TOKEN` to Vercel's public/build variables. After a URL/env change, redeploy the frontend and update/redeploy Render's matching variables. `dist/runtime-config.js` contains only these public URLs. A Render-only deployment also works: set `PUBLIC_MOBILE_URL=https://YOUR-SERVICE.onrender.com/mobile`, include that origin in CORS, and use its root observer page.
 
-In production, dashboard report submission and verification require the observer key. Open **How PathPulse works** and enter `ADMIN_TOKEN` from Render into its password field. It remains in page memory and is never bundled or persisted; reload to clear it. Phone activation needs no observer key. The public observer stream includes derived hazard coordinates, penalties and device **counts**, never device identifiers or raw health values.
+In production, dashboard report submission and verification require the observer key. Open **How ClearPath works** and enter `ADMIN_TOKEN` from Render into its password field. It remains in page memory and is never bundled or persisted; reload to clear it. Phone activation needs no observer key. The public observer stream includes derived hazard coordinates, penalties and device **counts**, never device identifiers or raw health values.
 
 ## 5. Optional custom domain, if registration becomes available
 
@@ -91,7 +91,7 @@ Only do this after both provider URLs work. Registering a domain is not required
 | --- | --- | --- |
 | A | `@` | **Copy the exact IPv4 target Vercel shows for this project** |
 | CNAME | `www` | **Copy the exact CNAME target Vercel shows** |
-| CNAME | `api` | Your Render service hostname, e.g. `pathpulse-api.onrender.com` |
+| CNAME | `api` | Your Render service hostname, e.g. `clearpath-api.onrender.com` |
 
 Do not paste `https://`, paths, or `/ws/stream` into DNS record values. Remove conflicting records for these names; preserve email MX/TXT records and unrelated names. Add `api.yourdomain.com` in Render **Settings → Custom Domains**, verify DNS, and wait for the TLS certificate. Vercel's displayed DNS targets can vary; do not reuse an old universal IP from a tutorial. Choose one canonical frontend hostname and redirect the other in Vercel.
 

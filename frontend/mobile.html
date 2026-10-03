@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f5f7fa"><title>PathPulse · Walk</title>
+  <meta name="theme-color" content="#f5f7fa"><title>ClearPath · Walk</title>
   <link rel="icon" href="/public/favicon.svg"><link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/assets/mobile.css">
   <script defer src="/vendor/leaflet/leaflet.js"></script><script src="/runtime-config.js"></script><script type="module" src="/assets/mobile.js"></script>
 </head>
@@ -10,7 +10,7 @@
   <main class="phone" aria-label="Live walking navigation">
     <div id="navigation-map" aria-label="Cornell walking map. Tap to choose your destination."></div>
     <section class="route-panel" aria-label="Walking route planner">
-      <div class="brand-row"><a class="wordmark" href="/">pathpulse<span>.</span></a><span id="map-stream" role="status">Connecting</span><button id="sound-toggle" type="button" aria-pressed="true">Sound on</button></div>
+      <div class="brand-row"><a class="wordmark" href="/">clearpath<span>.</span></a><span id="map-stream" role="status">Connecting</span><button id="sound-toggle" type="button" aria-pressed="true">Sound on</button></div>
       <form id="route-form">
         <div class="route-fields"><label for="start-location">Start Location</label><div class="location-control"><input id="start-location" value="My live location" autocomplete="off" spellcheck="false" aria-describedby="route-help"><button id="start-toggle" type="button" aria-label="Choose start location" aria-expanded="false">⌄</button></div><label for="destination-location">Destination</label><div class="location-control"><input id="destination-location" placeholder="Campus place or tap the map" autocomplete="off" spellcheck="false" required><button id="destination-toggle" type="button" aria-label="Choose destination" aria-expanded="false">⌄</button></div></div>
         <div class="planner-actions"><button id="locate-me" type="button" class="secondary">◎ Locate me</button><button id="find-routes" type="submit" class="primary">Find routes</button></div>

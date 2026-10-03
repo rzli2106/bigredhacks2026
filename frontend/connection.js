@@ -1,5 +1,5 @@
 export function configuration(){
-  const config=window.PathPulseConfig??{},api=(config.apiBase||window.location.origin).replace(/\/$/,'');
+  const config=window.ClearPathConfig??{},api=(config.apiBase||window.location.origin).replace(/\/$/,'');
   return {api,ws:config.wsUrl||`${api.replace(/^http/,'ws')}/ws/stream`,mobile:config.mobileUrl||`${window.location.origin}/mobile`};
 }
 export async function request(path,{method='GET',body,token,api=configuration().api,signal}={}){
@@ -75,9 +75,9 @@ export class DeviceTransport {
 }
 
 export function localDeviceId(storage = window.localStorage) {
-  let id = storage.getItem('pathpulse.device_id');
+  let id = storage.getItem('clearpath.device_id');
   if (!id || !/^[\w:-]{1,80}$/.test(id)) {
-    id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `phone-${Array.from(crypto.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('')}`; storage.setItem('pathpulse.device_id', id);
+    id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `phone-${Array.from(crypto.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('')}`; storage.setItem('clearpath.device_id', id);
   }
   return id;
 }

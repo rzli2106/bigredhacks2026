@@ -10,5 +10,5 @@ await cp('node_modules/leaflet/dist','dist/vendor/leaflet',{recursive:true});
 await cp('src/ui/styles.css','dist/assets/styles.css');await cp('frontend/mobile.css','dist/assets/mobile.css');
 const index=(await readFile('index.html','utf8')).replace('/src/ui/app.js','/assets/app.js').replaceAll('/node_modules/leaflet/dist/','/vendor/leaflet/').replace('/src/ui/styles.css','/assets/styles.css');
 await writeFile('dist/index.html',index);await cp('frontend/mobile.html','dist/mobile.html');
-await writeFile('dist/runtime-config.js',`window.PathPulseConfig=${JSON.stringify({apiBase:process.env.PUBLIC_API_URL??'',wsUrl:process.env.PUBLIC_WS_URL??'',mobileUrl:process.env.PUBLIC_MOBILE_URL??''})};\n`);
+await writeFile('dist/runtime-config.js',`window.ClearPathConfig=${JSON.stringify({apiBase:process.env.PUBLIC_API_URL??'',wsUrl:process.env.PUBLIC_WS_URL??'',mobileUrl:process.env.PUBLIC_MOBILE_URL??''})};\n`);
 console.log('Built observer dashboard and /mobile into dist/.');

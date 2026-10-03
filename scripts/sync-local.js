@@ -12,7 +12,7 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function unused(port){return new Promise(resolve=>{const socket=createConnection({port,host:'127.0.0.1'});socket.on('connect',()=>{socket.destroy();resolve(false);});socket.on('error',()=>resolve(true));});}
 async function waitFor(get,seconds=30){for(let i=0;i<seconds*4&&!stopping;i++){try{const result=await get();if(result)return result;}catch{}await delay(250);}throw new Error('Startup timed out. Check the preceding server/ngrok output.');}
 try{
-  for(const port of [apiPort,frontPort])if(!await unused(port))throw new Error(`Port ${port} is in use. Stop your existing PathPulse server or set BACKEND_PORT / FRONTEND_PORT to free ports.`);
+  for(const port of [apiPort,frontPort])if(!await unused(port))throw new Error(`Port ${port} is in use. Stop your existing ClearPath server or set BACKEND_PORT / FRONTEND_PORT to free ports.`);
   // Build before starting the persistent children.
   await new Promise((resolve,reject)=>{const child=spawn(process.execPath,['scripts/build.js'],{stdio:'inherit'});child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error('Build failed.')));});
   launch('ngrok',['http',String(apiPort),'--log','stdout']);
