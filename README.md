@@ -1,6 +1,6 @@
 # Micro-hazard sensing and routing scaffolding
 
-Dependency-free JavaScript implementation of roadmap Steps 1 and 2: a browser motion service, deterministic signal processor, Overpass ingestion, directed walking graph, and spatial edge index. Sensing emits **impact candidates**, not confirmed potholes or accessibility hazards. Sensor data is not uploaded. Map ingestion sends only the requested bounding box and query to Overpass.
+Dependency-free JavaScript implementation of roadmap Steps 1–3: a browser motion service, deterministic signal processor, Overpass ingestion, directed walking graph, spatial edge index, and decaying event costs with route search. Sensing emits **impact candidates**, not confirmed potholes or accessibility hazards. Sensor data is not uploaded. Map ingestion sends only the requested bounding box and query to Overpass.
 
 ## Run checks
 
@@ -66,6 +66,58 @@ Replace the four uppercase arguments with numeric bounding-box coordinates. The 
 
 All 26 tests pass, including graph topology, full polyline cost, pedestrian access/direction, incomplete-data rejection, index matching against exhaustive distances, and mocked Overpass ingestion/errors/timeouts. A local Node.js benchmark on a synthetic 10,000-node grid (39,600 directed edges, 19,800 physical segments) measured 10,000 queries after warm-up: mean **0.009 ms**, p95 **0.016 ms**, p99 **0.042 ms**, maximum **0.580 ms**, with no misses. These measurements are specific to this machine and fixture, not a mobile-device or worst-case guarantee. Live Overpass ingestion has not been exercised and no target-zone map has been downloaded.
 
-This is graph scaffolding, not a complete routing engine. Conditional access, barrier enforcement, opening hours, polygon navigation, mobility-specific restrictions, turn restrictions, dynamic hazard costs, and route search are not implemented. Preserve tags for those later steps. OSM data is attributed to **© OpenStreetMap contributors** under **ODbL-1.0**; preserve attribution when displaying or distributing maps.
+Conditional access, barrier enforcement, opening hours, polygon navigation, mobility-specific restrictions, and turn restrictions are not implemented. Preserve tags for those later steps. OSM data is attributed to **© OpenStreetMap contributors** under **ODbL-1.0**; preserve attribution when displaying or distributing maps.
 
 References: [Overpass QL](https://wiki.openstreetmap.org/wiki/Overpass_API/Overpass_QL), [pedestrian direction tags](https://wiki.openstreetmap.org/wiki/Key:oneway:foot), [OSM attribution and license](https://www.openstreetmap.org/copyright).
+
+## Step 3: dynamic costs and decay
+
+`DynamicEdgeCosts` attaches an in-memory event registry to the graph's directed edge IDs. `EdgeEventList` returns a snapshot Map of edge IDs to event arrays; `getEvents(edgeId)` returns one edge's snapshot. Stored events and their exact coordinates are immutable. `recordEvent(edgeIdOrIds, report)` validates an entire submission before attaching it, and accepts the `edgeIds` returned by a nearest-edge lookup when both directions should be affected. Passing a single ID affects only that direction.
+
+The report schema is `{ event_type, initial_penalty, half_life, timestamp, coordinate: { lat, lng } }`. Penalties and half-lives can be omitted to use these exported `EVENT_DEFAULTS`:
+
+| Event type | Initial penalty (virtual meters) | Half-life (seconds) |
+| --- | ---: | ---: |
+| `POTHOLE` | 50 | 1,800 |
+| `MUD` | 100 | 1,800 |
+| `MANUAL_HAZARD` | 300 | 14,400 |
+| `MANUAL_CLOSURE` | `Infinity` | 14,400 |
+
+The mud penalty and manual-hazard half-life are configurable engineering defaults. **Hard closure expiry is separate from half-life**: `closureMaxSeconds` defaults to 14,400 seconds (four hours) and can be overridden per report as `closure_max`. This duration was unspecified in the roadmap and is an explicit policy assumption. Only `MANUAL_CLOSURE` permits an infinite penalty. A closure submitted with a finite penalty follows ordinary decay.
+
+For an edge at time `t`, `weight(edgeId, t)` returns:
+
+```text
+distanceMeters + Σ(initial_penalty × 2 ** (-(t - timestamp) / half_life))
+```
+
+Only events with `timestamp <= t` contribute. Any unexpired infinite-penalty event returns `Infinity`, making the edge impassable. At `age >= closure_max`, that closure is removed. Infinite values never enter exponential multiplication. Finite events are removed once their remaining fraction is **strictly below 1%** (after approximately 6.644 half-lives); exactly 1% is retained. Other active events survive closure expiry.
+
+Timestamps here are **Unix seconds**, defaulting to `Date.now() / 1000`. They are not Step 1's monotonic millisecond timestamps. In a browser, correlate a sensor candidate with wall time using `(performance.timeOrigin + candidate.timestamp) / 1000` before verification and ingestion. Geometry APIs use `{ lat, lon }`; report coordinates deliberately follow the requested `{ lat, lng }` schema. Reports retain the exact observation coordinate rather than replacing it with the snapped location.
+
+```js
+import { DynamicEdgeCosts, shortestPath } from './src/routing/index.js';
+
+// graph and index come from loadRoutingZone() or an offline map fixture.
+const costs = new DynamicEdgeCosts(graph, { closureMaxSeconds: 14400 });
+const coordinate = { lat: 42.44, lng: -76.48 };
+const match = index.nearest({ lat: coordinate.lat, lon: coordinate.lng });
+if (match) {
+  costs.recordEvent(match.edgeIds, {
+    event_type: 'POTHOLE',
+    timestamp: Date.now() / 1000,
+    coordinate,
+  });
+}
+// originNodeId and destinationNodeId must exist in graph.nodes.
+const route = shortestPath(graph, originNodeId, destinationNodeId, { costs });
+// route: { nodeIds, edgeIds, costMeters, distanceMeters }, or null if unreachable.
+// Stop the maintenance timer when the owning application tears down:
+costs.dispose();
+```
+
+The Dijkstra evaluator captures one time for each route request. `costMeters` includes hazard penalties; `distanceMeters` is physical route length. `baselineCostSeconds` is never added to meter penalties. Optional `timestamp` on `shortestPath` supports controlled simulations, and `costs.evaluator(time)` exposes the same weight callback to other search algorithms. Costs remain fixed during each search; this is not prediction of costs at future edge-arrival times.
+
+Lazy cleanup occurs when evaluating an edge. A sweep every 60 seconds removes stale events from idle edges too; browser timer throttling can delay that sweep, but cost evaluation still removes expired events immediately. `prune(time)` supports explicit sweeps. Set `cleanupIntervalMs: 0` and inject a `now` function for deterministic simulations. Call `dispose()` when finished to release the timer. Pruning is destructive: this registry supports current/forward-time evaluation, not historical queries after events have been removed. Create a fresh registry for historical replay. Graph geometry and edge IDs should remain fixed for the registry's lifetime.
+
+The full suite now contains **40 passing tests**, including additive independent decay, exact expiry boundaries, overlapping closures, future observations, input validation, atomic multi-edge updates, idle cleanup, and route changes as evidence ages. Persistence, report deduplication across repeated submissions, report verification, and spatial avoidance/clearance inference remain separate ingestion work. Raw Step 1 candidates are not automatically labeled as potholes or inserted into the registry.

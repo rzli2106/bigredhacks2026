@@ -6,6 +6,8 @@ export { fetchWalkingMap, buildOverpassQuery, WALKABLE_HIGHWAYS } from './overpa
 export { buildWalkingGraph } from './graph.js';
 export { EdgeIndex } from './edge-index.js';
 export { haversine } from './geo.js';
+export { DynamicEdgeCosts, EVENT_DEFAULTS } from './dynamic-cost.js';
+export { shortestPath } from './shortest-path.js';
 
 export async function loadRoutingZone(bounds, { walkingSpeedMps = 1.3, ...fetchOptions } = {}) {
   const data = await fetchWalkingMap(bounds, fetchOptions);
