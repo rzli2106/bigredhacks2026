@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MobileNavigation } from '../frontend/mobile-navigation.js';
 function fixture(t) {
-  const elements = new Map(['find-routes','route-status', 'route-options', 'route-update-warning', 'route-update-status', 'retry-route', 'accept-reroute'].map(id => [`#${id}`, { hidden: false, disabled: false, textContent: '', children: ['old choice'], replaceChildren() { this.children = []; } }]));
+  const elements = new Map(['hazard-stream-status','find-routes','route-status', 'route-options', 'route-update-warning', 'route-update-status', 'retry-route', 'accept-reroute'].map(id => [`#${id}`, { hidden: false, disabled: false, textContent: '', children: ['old choice'], replaceChildren() { this.children = []; } }]));
   const oldDocument = globalThis.document, oldFetch = globalThis.fetch;
   globalThis.document = { querySelector: id => elements.get(id) };
   t.after(() => { globalThis.document = oldDocument; globalThis.fetch = oldFetch; });
