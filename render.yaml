@@ -14,8 +14,8 @@ services:
       - key: CORS_ORIGINS
         value: https://clearpath.wiki,https://www.clearpath.wiki,capacitor://localhost,https://localhost
       - key: PUBLIC_API_URL
-        value: https://clearpath.wiki
+        value: https://www.clearpath.wiki
       - key: PUBLIC_WS_URL
-        value: wss://clearpath.wiki/ws/stream
+        value: wss://www.clearpath.wiki/ws/stream
       - key: PUBLIC_MOBILE_URL
-        value: https://clearpath.wiki/mobile
+        value: https://www.clearpath.wiki/mobile

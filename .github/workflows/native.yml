@@ -7,9 +7,9 @@ on:
 permissions:
   contents: read
 env:
-  PUBLIC_API_URL: https://clearpath.wiki
-  PUBLIC_WS_URL: wss://clearpath.wiki/ws/stream
-  PUBLIC_MOBILE_URL: https://clearpath.wiki/mobile
+  PUBLIC_API_URL: https://www.clearpath.wiki
+  PUBLIC_WS_URL: wss://www.clearpath.wiki/ws/stream
+  PUBLIC_MOBILE_URL: https://www.clearpath.wiki/mobile
 jobs:
   android:
     runs-on: ubuntu-24.04

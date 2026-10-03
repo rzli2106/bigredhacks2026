@@ -30,7 +30,7 @@ Backend endpoints:
 | `POST /api/route` | Current dynamic route between `{lat,lon}` pins |
 | `GET /api/health` | Service health |
 
-Event payload: `{device_id,event_id,lat,lng,source,metric_type,severity,timestamp,accuracy_meters}`. Sources are `web_motion`, `healthkit`, `health_connect`, `manual`; severity is `(0,1]`. Sensor shocks also need `{evidence:{gyro_deg_s,peak_jerk,peak_acceleration,fwhm_ms}}`. Timestamps may be Unix seconds/milliseconds or ISO, but must be fresh within two minutes. Events snap to a KD tree of real polyline primitives within 40 m and attach to applicable directions. Retry IDs deduplicate uploads. Public snapshots exclude device IDs and raw health values.
+Event payload: `{device_id,event_id,lat,lng,source,metric_type,severity,timestamp,accuracy_meters}`. Sources are `web_motion`, `native_motion`, `healthkit`, `health_connect`, `manual`; severity is `(0,1]`. Sensor shocks also need `{evidence:{gyro_deg_s,peak_jerk,peak_acceleration,fwhm_ms}}`. Timestamps may be Unix seconds/milliseconds or ISO, but must be fresh within two minutes. Events snap to a KD tree of real polyline primitives within 40 m and attach to applicable directions. Retry IDs deduplicate uploads. Public snapshots exclude device IDs and raw health values.
 
 | Event | Initial virtual-meter penalty | Half-life / expiry |
 | --- | --- | --- |

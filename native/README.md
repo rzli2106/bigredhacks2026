@@ -24,7 +24,7 @@ Apple's walking-asymmetry samples are often delayed and sparse (typically 10–3
 
 ## Android 14+
 
-Requires Android Studio, JDK 17 or newer, Android SDK 35, and a physical/emulated Android 14+ environment with Health Connect enabled and records supplied by a compatible source app/device.
+Requires Android Studio, JDK 17 or newer, Android SDK 36, and a physical/emulated Android 14+ environment with Health Connect enabled and records supplied by a compatible source app/device.
 
 ```sh
 npm run native:android   # once; creates android/
@@ -39,7 +39,7 @@ The plugin uses stable `androidx.health.connect:connect-client:1.1.0`, read-only
 
 Set the build-time PUBLIC_* URLs to your production hosts and include `capacitor://localhost` and `https://localhost` in backend CORS. Rebuild/sync after changing URLs. The native shell starts at the bundled `/mobile.html` asset. Native location uses `@capacitor/geolocation`, not an assumption that a WebView exposes browser GPS. Use the observer's QR in Safari/Chrome for browser mode; to use native health, copy its **complete pairing link** into the native app's **Paste a pairing link** field and tap Start sharing. An HTTPS backend is required on the physical phone; `127.0.0.1` points to the phone itself, not your development computer. `npm run sync:local` generates the tunnel link.
 
-Validate permission denial/revocation, empty health stores, a fresh speed change with contemporaneous GPS, a delayed record with no matching fix, app background/foreground, stop sharing, and real hardware motion before relying on detections. The generated iOS SPM and Android projects have both been synced with the local plugin. The current workstation has command-line Swift but no full Xcode or Android SDK, so native SDK compilation and physical-device delivery remain unverified. Swift syntax parsing alone is not an iOS build.
+Validate permission denial/revocation, empty health stores, a fresh speed change with contemporaneous GPS, a delayed record with no matching fix, app background/foreground, stop sharing, and real hardware motion before relying on detections. The generated iOS SPM and Android projects have both been synced with the local plugin. The current workstation has command-line Swift but no full Xcode or Android SDK, but both platform SDK builds have passed on GitHub Actions: an unsigned iOS simulator app and a signed Android debug APK. Physical-device motion, health permissions/background delivery, and gait measurements remain unverified. iOS installation on a physical phone still requires your Apple signing team.
 
 References: [Capacitor iOS plugins](https://capacitorjs.com/docs/v7/plugins/ios), [Capacitor Android plugins](https://capacitorjs.com/docs/v7/plugins/android), [HealthKit observer queries](https://developer.apple.com/documentation/healthkit/executing-observer-queries), [HealthKit asymmetry](https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifier/walkingasymmetrypercentage), [Health Connect setup](https://developer.android.com/health-and-fitness/health-connect/get-started), [Health Connect releases](https://developer.android.com/jetpack/androidx/releases/health-connect).
 
@@ -50,6 +50,6 @@ The native shell uses Core Motion on iOS and SensorManager on Android at a reque
 To build against the deployed domain, run:
 
 ```sh
-PUBLIC_API_URL=https://clearpath.wiki PUBLIC_WS_URL=wss://clearpath.wiki/ws/stream PUBLIC_MOBILE_URL=https://clearpath.wiki/mobile npm run native:sync
+PUBLIC_API_URL=https://www.clearpath.wiki PUBLIC_WS_URL=wss://www.clearpath.wiki/ws/stream PUBLIC_MOBILE_URL=https://www.clearpath.wiki/mobile npm run native:sync
 npm run native:configure
 ```
