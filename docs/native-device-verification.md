@@ -2,6 +2,8 @@
 
 Android APK and iOS simulator compilation are verified in CI. Physical sensor delivery, GPS precision, health-store delivery and background HealthKit wakes require a real device; they are not established by a successful build.
 
+Current APK: commit `026816c`, built in [native CI](https://github.com/rzli2106/bigredhacks2026/actions/runs/37114650077). Android health reads now terminate on null or empty page tokens, following [Health Connect pagination guidance](https://developer.android.com/health-and-fitness/health-connect/read-data). Web checks and both SDK builds passed; the empty-token behavior has not been exercised against a physical Health Connect provider.
+
 ## Install and pair
 
 Use the latest `artifacts/native/clearpath-android-debug.apk` on Android 14 or newer. For iPhone, follow `native/README.md` to sync the app, open the iOS project in full Xcode, select a signing team and run on the phone.
