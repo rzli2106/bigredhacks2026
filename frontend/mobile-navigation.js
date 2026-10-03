@@ -242,9 +242,12 @@ export class MobileNavigation {
     if (!available.some(item => sameRoute(item.route, this.active))) {
       L.polyline(this.active.geometry.map(p => [p.lat, p.lon]), { color: '#2459e0', weight: 7, opacity: 1 }).addTo(this.routes);
     }
+    const focusedChoice = document.activeElement?.dataset?.routeChoice;
+    let restoredFocus = false;
     $('#route-options').replaceChildren();
     for (const item of available) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'route-card';
+      button.dataset.routeChoice = item.key;
       button.setAttribute('aria-pressed', String(sameRoute(this.active, item.route)));
       const closed = item.route.blocked || routeHasClosure(item.route, this.snapshot?.events);
       button.disabled = closed || (this.snapshot && (options.instance_id !== this.snapshot.instance_id || options.revision < this.snapshot.revision));
@@ -254,7 +257,9 @@ export class MobileNavigation {
       button.append(title, detail);
       button.onclick = () => { this.active = item.route; this.activeChoice = item.key; this.pending = []; this.hideAlert(); this.renderRoutes(); };
       $('#route-options').append(button);
+      if (focusedChoice === item.key && !button.disabled) { button.focus(); restoredFocus = true; }
     }
+    if (focusedChoice && !restoredFocus) $('#edit-route').focus();
     this.renderActive();
     if (fit && this.active.geometry.length > 1) {
       const panel = $($('#route-planner').hidden ? '#edit-route' : '#route-planner').getBoundingClientRect(), dock = $('.bottom-dock').getBoundingClientRect(), map = $('#navigation-map').getBoundingClientRect();
