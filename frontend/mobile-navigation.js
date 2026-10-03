@@ -17,7 +17,7 @@ export class MobileNavigation {
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(this.map);
     L.control.zoom({ position: 'bottomright' }).addTo(this.map);
     this.routes = L.layerGroup().addTo(this.map); this.hazards = L.layerGroup().addTo(this.map);
-    this.searches = [new PlaceSearch($('#start-location'), { live: true }), new PlaceSearch($('#destination-location'))];
+    this.searches = [new PlaceSearch($('#start-location'), { live: true, onSelect: () => this.cancelLocate() }), new PlaceSearch($('#destination-location'))];
     this.pinTarget = 'end';
     $('#edit-route').onclick = () => { this.setPlannerOpen(true); $('#start-location').focus(); };
     $('#return-to-map').onclick = () => this.setPlannerOpen(false);
@@ -30,11 +30,8 @@ export class MobileNavigation {
     this.pinKeyboard = event => this.handlePinKey(event);
     this.map.getContainer().addEventListener('keydown', this.pinKeyboard);
     $('#route-form').onsubmit = event => { event.preventDefault(); this.unlockAudio(); this.generate(); };
-    $('#locate-me').onclick = async () => {
-      this.unlockAudio();
-      try { await this.ensureLocation(); const point = this.getLocation(); this.map.setView([point.lat, point.lon], 18); $('#start-location').value = 'My live location'; }
-      catch (error) { this.notify(error.message); }
-    };
+    $('#locate-me').onclick = () => this.locate();
+    $('#start-location').addEventListener('input', () => this.cancelLocate());
     $('#sound-toggle').onclick = () => {
       this.sound = !this.sound; $('#sound-toggle').textContent = this.sound ? 'Sound on' : 'Sound off';
       $('#sound-toggle').setAttribute('aria-pressed', String(this.sound)); if (this.sound) this.unlockAudio();
@@ -57,6 +54,7 @@ export class MobileNavigation {
     } else { $('#edit-route').focus(); }
   }
   beginPin(target) {
+    this.cancelLocate();
     this.pinTarget = target; this.placingPin = true;
     for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', String(side === target));
     $('#pin-help').textContent = `Choose ${target === 'start' ? 'start' : 'destination'}: tap the map, or use arrow keys then Enter at the crosshair. Escape cancels.`;
@@ -79,6 +77,21 @@ export class MobileNavigation {
     if (event.key === 'Enter') { const point = this.map.getCenter(); this.placePin({ lat: point.lat, lon: point.lng }); }
     else { const target = this.pinTarget; this.setPlannerOpen(true); $(target === 'start' ? '#start-location' : '#destination-location').focus(); }
   }
+  cancelLocate() {
+    this.locateId = (this.locateId || 0) + 1;
+    $('#locate-me').disabled = false; $('#locate-me').textContent = 'Locate me';
+  }
+  async locate() {
+    this.cancelLocate(); const id = this.locateId; this.unlockAudio();
+    $('#locate-me').disabled = true; $('#locate-me').textContent = 'Locating…';
+    try {
+      await this.ensureLocation(); if (id !== this.locateId) return;
+      const point = this.getLocation();
+      if (!point) throw new Error('Location is unavailable. Try again or choose a pin.');
+      this.map.setView([point.lat, point.lon], 18); $('#start-location').value = 'My live location';
+    } catch (error) { if (id === this.locateId) this.notify(error.message); }
+    finally { if (id === this.locateId) this.cancelLocate(); }
+  }
   markStart(point) {
     if (this.startMarker) this.startMarker.setLatLng([point.lat, point.lon]);
     else this.startMarker = window.L.circleMarker([point.lat, point.lon], { radius: 7, color: 'white', weight: 3, fillColor: '#2459e0', fillOpacity: 1 }).addTo(this.map).bindTooltip('Start');
@@ -94,7 +107,7 @@ export class MobileNavigation {
   }
   setApi(api) {
     if (this.api === api) return;
-    this.api = api; this.unsubscribe?.(); this.cancelRequest(); this.alerts = new RouteAlerts(); this.pending = [];
+    this.cancelLocate(); this.api = api; this.unsubscribe?.(); this.cancelRequest(); this.alerts = new RouteAlerts(); this.pending = [];
     clearTimeout(this.refreshTimer); this.refreshScheduled = false;
     this.from = null; this.to = null; this.snapshot = null; this.signature = null;
     this.hazards.clearLayers();
@@ -134,6 +147,7 @@ export class MobileNavigation {
     this.refreshTimer = setTimeout(() => { this.refreshScheduled = false; this.refresh(false); }, delay);
   }
   async generate() {
+    this.cancelLocate();
     clearTimeout(this.refreshTimer); this.refreshScheduled = false;
     this.cancelRequest(); this.pending = []; this.hideAlert();
     this.active = null; this.routeUpdateError = ''; this.renderUpdateState(); this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true;
@@ -279,5 +293,5 @@ export class MobileNavigation {
     this.active = this.options.alternative; this.activeChoice = 'alternative'; this.pending = []; this.hideAlert(); this.renderRoutes();
     this.notify('Alternative route accepted.');
   }
-  stop() { this.map.getContainer().removeEventListener('keydown', this.pinKeyboard); this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.pause(); }
+  stop() { this.cancelLocate(); this.map.getContainer().removeEventListener('keydown', this.pinKeyboard); this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); this.audio.pause(); }
 }

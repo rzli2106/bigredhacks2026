@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { MobileNavigation } from '../frontend/mobile-navigation.js';
 function fixture(t) {
   let focused, marked, notified;
-  const ids=['route-planner','edit-route','return-to-map','pin-start','pin-end','pin-help','pin-reticle','start-location','destination-location','route-status'];
+  const ids=['locate-me','route-planner','edit-route','return-to-map','pin-start','pin-end','pin-help','pin-reticle','start-location','destination-location','route-status'];
   const elements=new Map(ids.map(id=>[`#${id}`,{hidden:false,value:id,attributes:{},setAttribute(k,v){this.attributes[k]=v;},focus(){focused=id;}}]));
   const old=globalThis.document;globalThis.document={querySelector:id=>elements.get(id)};t.after(()=>{globalThis.document=old;});
   const nav=Object.create(MobileNavigation.prototype);
