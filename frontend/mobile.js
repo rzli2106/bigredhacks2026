@@ -110,6 +110,7 @@ $('#start').onclick = async () => {
   navigation.unlockAudio();
   if (!pairing) { message('Scan a Connect Phone QR code or paste its pairing link first.'); openPairing(); return; }
   if (!window.isSecureContext) { message('Open this phone page over HTTPS to enable motion and location.'); return; }
+  const restoreFocus = document.activeElement === $('#start');
   $('#start').disabled = true; sharing = true; const generation = ++sharingGeneration;
   nativeMotionSeen = false;
   // iOS permission request runs directly in this tap, before any await/network call.
@@ -134,6 +135,7 @@ $('#start').onclick = async () => {
   }
   ensureLocation().catch(error => { if (generation === sharingGeneration) $('#phone-status').textContent = error.message; });
   $('#start').hidden = true; $('#stop').hidden = false;
+  if (restoreFocus) $('#stop').focus();
   try {
     await motionRequest; if (!sharing || generation !== sharingGeneration) return;
     if (nativePlatform()) await health.start();
@@ -141,9 +143,11 @@ $('#start').onclick = async () => {
   finally { if (generation === sharingGeneration) $('#start').disabled = false; }
 };
 function stopSensors() {
+  const restoreFocus = document.activeElement === $('#stop');
   sharing = false; ++sharingGeneration; motion.stop(); rawTransport?.stop(); rawTransport = null; transport?.stop();
   if (nativePlatform()) health.stop().catch(() => {});
   locations.length = 0; $('#start').hidden = false; $('#start').disabled = false; $('#stop').hidden = true;
+  if (restoreFocus) $('#start').focus();
   $('#connection').textContent = pairing ? 'Paired' : 'Not paired'; $('#sensor-status').textContent = 'Sensors stopped';
   $('#health-status').textContent = nativePlatform() ? 'Native health sharing stopped' : 'Browser mode · motion sensing and manual reports';
   $('#phone-status').textContent = 'Sensor sharing stopped. GPS navigation remains active.';
