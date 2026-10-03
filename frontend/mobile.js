@@ -20,7 +20,9 @@ $('#close-message').onclick = () => { $('#phone-message').hidden = true; };
 function countReport() { $('#sent-count').textContent = String(++sent); }
 function openPairing() { $('#dock-details').open = true; $('#pair-details').open = true; }
 function pairLink(link) {
-  const url = new URL(link), fragment = new URLSearchParams(url.hash.slice(1));
+  let url;
+  try { url = new URL(link); } catch { throw new Error('Paste the complete pairing link from Connect Phone.'); }
+  const fragment = new URLSearchParams(url.hash.slice(1));
   const api = fragment.get('api'), token = fragment.get('token'), deviceId = fragment.get('device_id');
   if (!api || !token || !deviceId) throw new Error('Paste the complete link from Connect Phone.');
   const endpoint = new URL(api);

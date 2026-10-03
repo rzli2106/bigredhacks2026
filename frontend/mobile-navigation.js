@@ -19,12 +19,15 @@ export class MobileNavigation {
     this.searches = [new PlaceSearch($('#start-location'), { live: true }), new PlaceSearch($('#destination-location'))];
     this.pinTarget = 'end';
     $('#edit-route').onclick = () => { this.setPlannerOpen(true); $('#start-location').focus(); };
+    $('#return-to-map').onclick = () => this.setPlannerOpen(false);
     for (const target of ['start', 'end']) $('#pin-' + target).onclick = () => {
       this.pinTarget = target;
+      this.placingPin = true;
       for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', String(side === target));
       this.setPlannerOpen(false); $('#edit-route').textContent = `Cancel ${target} pin`;
     };
     this.map.on('click', ({ latlng }) => {
+      if ($('#route-planner').hidden && !this.placingPin) return;
       if (!withinCornell({ lat: latlng.lat, lon: latlng.lng })) { this.notify('Choose a destination inside Cornell coverage.'); return; }
       const start = this.pinTarget === 'start', point = { lat: latlng.lat, lon: latlng.lng };
       $(start ? '#start-location' : '#destination-location').value = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
@@ -50,8 +53,10 @@ export class MobileNavigation {
     for (const search of this.searches) search.close();
     $('#route-planner').hidden = !open; $('#edit-route').hidden = open;
     $('#edit-route').setAttribute('aria-expanded', String(open)); $('#edit-route').textContent = 'Edit route';
+    $('#return-to-map').hidden = !this.active;
     if (open) {
       this.pinTarget = 'end';
+      this.placingPin = false;
       for (const side of ['start', 'end']) $('#pin-' + side).setAttribute('aria-pressed', 'false');
     } else { $('#edit-route').focus(); }
   }
@@ -71,7 +76,7 @@ export class MobileNavigation {
   setApi(api) {
     if (this.api === api) return;
     this.api = api; this.unsubscribe?.(); this.cancelRequest(); this.alerts = new RouteAlerts(); this.pending = [];
-    this.options = null; this.active = null; this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true; this.hideAlert(); this.connect();
+    this.options = null; this.active = null; this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true; this.setPlannerOpen(true); this.hideAlert(); this.connect();
   }
   connect() {
     const configured = configuration();
@@ -109,6 +114,7 @@ export class MobileNavigation {
     clearTimeout(this.refreshTimer); this.refreshScheduled = false;
     this.cancelRequest(); this.pending = []; this.hideAlert();
     this.active = null; this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true;
+    $('#return-to-map').hidden = true;
     $('#find-routes').disabled = true; $('#route-status').textContent = 'Finding walking routes…';
     const generation = this.requestId;
     try {

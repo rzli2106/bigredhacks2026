@@ -25,6 +25,7 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid
 .pin-actions{display:flex;gap:8px;margin-top:8px}
 .pin-actions button{flex:1;min-height:44px;padding:8px;font-size:12px}
 .edit-route{position:absolute;z-index:600;top:max(12px,env(safe-area-inset-top));left:12px;min-height:48px;box-shadow:0 4px 20px #182b3820}
+#return-to-map{width:100%;margin-top:8px;min-height:44px;font-size:13px}
 input{padding:10px 12px;min-height:44px;width:100%;min-width:0;border:1px solid #dce3ea;border-radius:10px;background:#f8fafc;color:#172b38;font-size:16px}
 .planner-actions{display:flex;gap:8px;margin-top:9px}
 .planner-actions button{flex:1;font-size:13px;min-height:48px}
