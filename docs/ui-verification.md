@@ -2,6 +2,10 @@
 
 ## Current deployed mobile verification — October 3, 2026
 
+Follow-up reliability checks now pass **109 tests**. Queued/stale WebSocket callbacks cannot mutate a stopped/replaced stream; an isolated browser test recovered from a server restart and generated a route afterward. Switching server endpoints clears pending routes and stale hazard state. Production phone pairing was verified to generate canonical www.clearpath.wiki URLs without exposing its private token.
+
+[Health validation PR #3](https://github.com/rzli2106/bigredhacks2026/pull/3) rejects malformed records before they contaminate baselines, preserves valid historical calibration, and selects valid precise GPS fixes. Four new cases fail against the previous detector. Unsupported pairing protocols now produce a useful error while the map remains functional. Native delivery-status updates and current Android/iOS SDK builds passed in [CI](https://github.com/rzli2106/bigredhacks2026/actions/runs/37112693627). Use `docs/native-device-verification.md` for the remaining physical-device checks.
+
 Production is served over HTTPS at https://www.clearpath.wiki; https://clearpath.wiki redirects there. Render now deploys `main`. The mobile planner provides touch/keyboard autocomplete for both endpoints, separate start/end pin controls, physical walking time, complete planner collapse on success, and Edit route / Return to map controls. Browser verification covered 375 × 812 portrait and 812 × 375 landscape views.
 
 Tested routes: Ho Plaza → Arts Quad (340 m, 5 min), Gates Hall → Bailey Hall (779 m, 10 min), and Uris Hall → Ho Plaza (291 m, 4 min). The first two also passed through the public production interface. Invalid destinations retain the planner; accidental map taps leave a running trip unchanged. Sound, pin cancellation, route switching, pairing failure, and report cancellation were exercised without browser console errors.
