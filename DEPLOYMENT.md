@@ -41,9 +41,9 @@ BACKEND_PORT=8001 npm run sync:local
 npm run sync:local -- --dry-run
 ```
 
-The utility builds the app, starts `ngrok http 8000` (or your `BACKEND_PORT`), discovers its HTTPS URL via the local ngrok API, starts the API and desktop observer, configures CORS and WSS, and prints a scoped pairing QR. The phone loads `/mobile` from the tunneled backend, which also serves the built assets. The desktop uses the loopback API so creating a QR does not require an observer key. Additional QRs are available through **Connect Device → Create pairing QR**. Ctrl+C stops both servers and the tunnel. A conflicting port, unavailable ngrok agent, missing auth, or startup timeout fails with a message.
+The utility builds the app, starts `ngrok http 8000` (or your `BACKEND_PORT`), discovers its HTTPS URL via the local ngrok API, starts the API and desktop observer, configures CORS and WSS, and prints a scoped pairing QR. The phone loads `/mobile` from the tunneled backend, which also serves the built assets. The desktop uses the loopback API so creating a QR does not require an observer key. Additional QRs are available through **Connect Phone → Create pairing QR**. Ctrl+C stops both servers and the tunnel. A conflicting port, unavailable ngrok agent, missing auth, or startup timeout fails with a message.
 
-Scan the QR on a phone and tap **Start sharing**. Browsers require this explicit tap for motion permission; permission cannot be silently requested when a QR opens. Approve location and motion, keep the page in the foreground, and walk inside Cornell coverage. Tap **Stop sharing** to release watchers and discard unsent reports. HealthKit/Health Connect require the native build described in `native/README.md`; ordinary Safari/Chrome cannot read health stores.
+Scan the QR on a phone and tap **Start Sensors**. Browsers require this explicit tap for motion permission; permission cannot be silently requested when a QR opens. Approve location and motion, keep the page in the foreground, and walk inside Cornell coverage. Tap **Stop sharing** to release watchers and discard unsent reports. HealthKit/Health Connect require the native build described in `native/README.md`; ordinary Safari/Chrome cannot read health stores.
 
 Pair links carry a four-hour device-scoped token in the URL **fragment** (not the query). Keep them private; do not put a real QR in public screenshots. `/mobile` strips no fragment because it needs the credentials until pairing is parsed; fragments are not sent in HTTP requests. API updates go over authenticated HTTPS POST, then observers receive derived hazard updates over WSS. Devices cannot resolve other reports or create additional pairings.
 
@@ -79,7 +79,7 @@ PUBLIC_MOBILE_URL=https://pathpulse-demo.vercel.app/mobile
 
 Never add `ADMIN_TOKEN` to Vercel's public/build variables. After a URL/env change, redeploy the frontend and update/redeploy Render's matching variables. `dist/runtime-config.js` contains only these public URLs. A Render-only deployment also works: set `PUBLIC_MOBILE_URL=https://YOUR-SERVICE.onrender.com/mobile`, include that origin in CORS, and use its root observer page.
 
-In production, **Connect Device** asks for the backend's observer key. Copy `ADMIN_TOKEN` from Render into that password field, then create a QR. It remains in page memory, is never bundled or persisted, and authorizes pairing and report verification. Reload to clear it. Each phone gets a separate token. The public observer stream includes derived hazard coordinates, penalties and device **counts**, never device identifiers or raw health values. It is a public hackathon hazard feed; use private streaming/authentication before handling private location data in a deployed product.
+In production, **Connect Phone** asks for the backend's observer key. Copy `ADMIN_TOKEN` from Render into that password field, then create a QR. It remains in page memory, is never bundled or persisted, and authorizes pairing and report verification. Reload to clear it. Each phone gets a separate token. The public observer stream includes derived hazard coordinates, penalties and device **counts**, never device identifiers or raw health values. It is a public hackathon hazard feed; use private streaming/authentication before handling private location data in a deployed product.
 
 ## 5. Optional custom domain, if registration becomes available
 
@@ -99,7 +99,7 @@ Then set both hosts' public URLs to `https://api.yourdomain.com`, `wss://api.you
 
 1. Open the observer, wait for **Live**, and confirm real Cornell tiles/paths. Choose Starting point, drop A, choose Destination, drop B, then Find a walking route.
 2. Run **Simulation → Run all four**. A detours 36 m → 62 m; B rejects bag tumble; C preserves after five swerves; D shows 25 / 12.5 / 3.125 m at 15 / 30 / 60 min and restores the direct path. Move the slider back to zero and inject each type by map click. Simulation must not appear in a second live observer.
-3. Create a phone QR, scan it, Start sharing, and report an obstacle at a real Cornell location. Every live observer should receive the pin and updated route. On desktop test **Still here** and **Mark resolved**.
+3. Create a phone QR, scan it, Start Sensors, and report an obstacle at a real Cornell location. Every live observer should receive the pin and updated route. On desktop test **Still here** and **Mark resolved**.
 4. Stop/restart phone sharing. Revoke location/motion permission and verify useful feedback plus map-pin manual fallback. Try an outside-campus position; it must not create an event. A desktop is not a substitute for device sensor testing.
 5. `npm test`, `npm run simulate`, and `NODE_ENV=production npm run build` verify the local core. Check the hosted `/api/health`, CORS rejection for a wrong origin, fresh QR expiry, and WSS reconnect after a backend restart.
 

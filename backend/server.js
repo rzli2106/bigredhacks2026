@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { buildWalkingGraph } from '../src/routing/index.js';
 import { ApiError, TelemetryEngine } from './engine.js';
+import { RawMotionReceiver } from './raw-motion.js';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
@@ -17,6 +18,7 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
   if(production){for(const [value,protocol]of [[publicApiUrl,'https:'],[publicWsUrl,'wss:'],[publicMobileUrl,'https:']])if(value&&new URL(value).protocol!==protocol)throw new Error('Production public URLs require HTTPS/WSS.');}
   graph ??= buildWalkingGraph(JSON.parse(await readFile(resolve(root,'public/cornell-osm.json'),'utf8')));
   const engine=new TelemetryEngine(graph,{now});
+  const rawMotion=new RawMotionReceiver(engine);
   const sessions=new Map(), limits=new Map(), origins=new Set(allowedOrigins);
   const websocket=new WebSocketServer({noServer:true,maxPayload:1024,perMessageDeflate:false});
   const allowOrigin=origin=>!origin||origins.has(origin);
@@ -55,16 +57,18 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
     if(origin){response.setHeader('Access-Control-Allow-Origin',origin);response.setHeader('Vary','Origin');}
     response.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
     response.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization');
+    response.setHeader('Access-Control-Max-Age','600');
     response.setHeader('Permissions-Policy','accelerometer=(self), gyroscope=(self), geolocation=(self)');
     if(request.method==='OPTIONS'){response.writeHead(204);response.end();return;}
     try {
       const url=new URL(request.url,'http://localhost'),path=url.pathname;
       if (path.startsWith('/api/') && request.method==='POST') {
         if (!request.headers['content-type']?.startsWith('application/json')) throw new ApiError(415,'Use application/json.');
-        const key= `${request.socket.remoteAddress}:${bearer(request).slice(0,64)}`;
+        const raw=path==='/api/telemetry/raw';
+        const key= `${raw?'raw':'api'}:${request.socket.remoteAddress}:${bearer(request).slice(0,64)}`;
         const previous=limits.get(key),at=engine.now();
         const bucket=previous&&at-previous.start<60?previous:{start:at,count:0};bucket.count++;limits.set(key,bucket);
-        if(bucket.count>120) throw new ApiError(429,'Too many requests. Retry in a minute.');
+        if(bucket.count>(raw?1500:120)) throw new ApiError(429,'Too many requests. Retry in a minute.');
       }
       if(path==='/api/health' && request.method==='GET'){json(response,200,{ok:true,service:'PathPulse',edges:graph.edges.size});return;}
       if(path==='/api/cornell-map' && request.method==='GET'){
@@ -94,6 +98,12 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
       if(path==='/api/telemetry/event'&&request.method==='POST'){
         const data=await body(request);authorizeDevice(request,data);const result=engine.ingest(data);
         json(response,result.accepted?201:200,result);if(result.accepted&&!result.duplicate)broadcast();return;
+      }
+      if(path==='/api/telemetry/raw'&&request.method==='POST'){
+        const data=await body(request);authorizeDevice(request,data);const revision=engine.revision;
+        try {const result=rawMotion.ingest(data);json(response,200,result);}
+        finally {if(engine.revision!==revision)broadcast();}
+        return;
       }
       if(path==='/api/telemetry/passage'&&request.method==='POST'){
         const data=await body(request);authorizeDevice(request,data);const result=engine.passage(data);json(response,200,result);broadcast();return;
@@ -125,6 +135,7 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
     client.send(JSON.stringify(snapshot()));
   });
   const timer=setInterval(()=>{
+    rawMotion.prune();
     for(const[token,session]of sessions)if(session.expiresAt<=engine.now())sessions.delete(token);
     for(const[key,bucket]of limits)if(engine.now()-bucket.start>60)limits.delete(key);
     if(engine.metadata.size||websocket.clients.size)broadcast();

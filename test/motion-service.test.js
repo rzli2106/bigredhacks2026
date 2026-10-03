@@ -79,3 +79,19 @@ test('only accepted candidates reach the application callback', async () => {
   assert.equal(candidates.length, 1);
   service.stop();
 });
+
+test('raw callback preserves all axes and converts motion timestamps to Unix milliseconds', async () => {
+  const target = browser(async () => 'granted'), raw = [];
+  target.performance = { timeOrigin: 1800000000000 };
+  const service = new MotionService({ window: target, onRawSample: sample => raw.push(sample) });
+  await service.start();
+  const event = new Event('devicemotion');
+  Object.defineProperties(event, {
+    timeStamp: { value: 20 },
+    accelerationIncludingGravity: { value: { x: 1, y: 2, z: 3 } },
+    rotationRate: { value: { alpha: 4, beta: 5, gamma: 6 } },
+  });
+  target.dispatchEvent(event);
+  assert.deepEqual(raw, [{ timestamp: 1800000000020, accelerationIncludingGravity: { x: 1, y: 2, z: 3 }, rotationRate: { alpha: 4, beta: 5, gamma: 6 } }]);
+  service.stop(); target.dispatchEvent(event); assert.equal(raw.length, 1);
+});
