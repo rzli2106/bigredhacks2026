@@ -194,7 +194,9 @@ $('#confirm-report').onclick = async () => {
   try {
     const result = await request('/api/telemetry/event', { api: pairing.api, token: pairing.token, method: 'POST', body: reportPayload, signal: controller.signal });
     if (!result.accepted) throw new Error(result.reason || 'The report was not accepted.');
-    if (!result.duplicate) countReport();
+    // A duplicate acknowledgement confirms a previous attempt whose response was lost.
+    // This dialog counts only after its first successful acknowledgement.
+    countReport();
     if (generation === reportGeneration) { $('#phone-report-dialog').close(); message('Report confirmed. The live map has been updated.'); }
   } catch (error) {
     if (generation === reportGeneration) {
