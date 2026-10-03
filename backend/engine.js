@@ -2,6 +2,7 @@ import { DynamicEdgeCosts, EdgeIndex, DisambiguationEngine, routeBetweenPins } f
 import { validateCoordinate } from '../src/routing/geo.js';
 import { TELEMETRY_POLICY, shockRejection, unixSeconds } from '../src/telemetry/policy.js';
 import { withinCornell } from '../src/ui/cornell.js';
+import { RoadBlocks } from '../src/routing/road-blocks.js';
 import { walkingRouteOptions } from '../src/routing/route-options.js';
 
 export class ApiError extends Error {
@@ -9,7 +10,7 @@ export class ApiError extends Error {
 }
 export class TelemetryEngine {
   constructor(graph, { now = () => Date.now()/1000, enforceCoverage = true, maxEvents = 5000 } = {}) {
-    this.graph = graph; this.index = new EdgeIndex(graph); this.now = now; this.enforceCoverage = enforceCoverage; this.maxEvents = maxEvents;
+    this.blocks = new RoadBlocks(graph); this.graph = graph; this.index = new EdgeIndex(graph); this.now = now; this.enforceCoverage = enforceCoverage; this.maxEvents = maxEvents;
     this.costs = new DynamicEdgeCosts(graph, { now, cleanupIntervalMs: 0 }); this.evidence = new DisambiguationEngine(this.costs);
     this.metadata = new Map(); this.dedup = new Map(); this.instanceId = globalThis.crypto.randomUUID(); this.revision = 0;
   }
@@ -45,13 +46,14 @@ export class TelemetryEngine {
     const match = this.index.nearest({lat,lon:lng},{maxDistanceMeters:40});
     if (!match) throw new ApiError(422,'No walking path is within 40 m.');
     const policy = TELEMETRY_POLICY[metric_type];
-    const event = this.costs.recordEvent(match.edgeIds, { event_type:policy.event_type, initial_penalty:policy.penalty === Infinity ? Infinity : policy.penalty * severity,
+    const edgeIds = metric_type === 'MANUAL_CLOSURE' ? this.blocks.edges(match.segmentId) : match.edgeIds;
+    const event = this.costs.recordEvent(edgeIds, { event_type:policy.event_type, initial_penalty:policy.penalty === Infinity ? Infinity : policy.penalty * severity,
       half_life:policy.halfLife, timestamp, coordinate:{lat,lng}, closure_max:14400 });
     const id = `${this.instanceId}:${event.id}`;
-    this.metadata.set(event.id,{id,metric_type,source,hazardCategory:payload.hazard_category,edgeIds:match.edgeIds});
+    this.metadata.set(event.id,{id,metric_type,source,hazardCategory:payload.hazard_category,edgeIds});
     if (key) this.dedup.set(key,{id,time:now});
     this.revision++;
-    return {accepted:true,id,coordinate:{lat,lng},snapped_coordinate:{lat:match.coordinate.lat,lng:match.coordinate.lon},edge_ids:match.edgeIds};
+    return {accepted:true,id,coordinate:{lat,lng},snapped_coordinate:{lat:match.coordinate.lat,lng:match.coordinate.lon},edge_ids:edgeIds};
   }
   passage(payload) {
     if (!payload || typeof payload.device_id !== 'string' || !/^[\w:-]{1,80}$/.test(payload.device_id) || typeof payload.passage_id !== 'string' || !/^[\w:-]{1,100}$/.test(payload.passage_id)) throw new ApiError(400,'Invalid passage identifiers.');

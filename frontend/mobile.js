@@ -1,19 +1,16 @@
 import { MotionService } from '../src/motion-service.js';
 import { NativeMotionService } from './native-motion.js';
-import { NativeHealthService } from './native-health.js';
 import { captureLocation, watchLocation } from './location.js';
 import { withinCornell } from '../src/ui/cornell.js';
 import { SHOCK_GATE } from '../src/telemetry/policy.js';
-import { DeviceTransport, RawMotionTransport, request } from './connection.js';
+import { DeviceTransport, WebSocketMotionTransport, registerDevice, request } from './connection.js';
 import { Health, nativePlatform } from './health.js';
 import { HealthAnalyzer } from './health-analysis.js';
 import { MobileNavigation } from './mobile-navigation.js';
-import { readPairingLink } from './pairing.js';
 
 const $ = selector => document.querySelector(selector);
-let pairing, transport, rawTransport, navigation, location, locationStart;
+let pairing, transport, rawTransport, navigation, healthTimer, location, locationStart;
 let sharing = false, sharingGeneration = 0, locationGeneration = 0, sent = 0;
-let nativeMotionSeen = false;
 let stopLocation = () => {}, lastMotion = 0, lastUnsafeMotion = 0, lastShock = 0, lastPassage = 0;
 let reportLocation, reportCategory, reportPayload, reportMap, reportMarker, reportGeneration = 0, reportSending = false;
 const locations = [], analyzer = new HealthAnalyzer();
@@ -21,19 +18,14 @@ const locations = [], analyzer = new HealthAnalyzer();
 function message(text) { $('#phone-message').hidden = false; $('#message-text').textContent = text; }
 $('#close-message').onclick = () => { $('#phone-message').hidden = true; };
 function countReport() { $('#sent-count').textContent = String(++sent); }
-$('#sensor-status').textContent = window.isSecureContext ? 'Sensors inactive · start after pairing' : 'Sensors unavailable · open this page over HTTPS';
-$('#health-status').textContent = nativePlatform() ? 'Native health sharing inactive' : 'Browser mode · motion sensing and manual reports';
-function openPairing() { $('#dock-details').open = true; $('#pair-details').open = true; }
-function pairLink(link) {
-  const next = readPairingLink(link);
-  if (sharing) stopSensors();
-  pairing = next; navigation?.setApi(pairing.api);
-  $('#connection').textContent = 'Paired'; $('#phone-status').textContent = 'Paired. Tap Start Sensors to allow motion and location access.';
-  $('#pair-details').open = false; $('#start').disabled = false;
+let sessionRequest;
+async function ensureSession() {
+  if (pairing && (!pairing.expiresAt || pairing.expiresAt > Date.now() / 1000 + 30)) return pairing;
+  sessionRequest ??= registerDevice(undefined, pairing).then(session => {
+    pairing = session; $('#connection').textContent = 'Connected'; return session;
+  }).finally(() => { sessionRequest = null; });
+  return sessionRequest;
 }
-try { if (window.location.hash) pairLink(window.location.href); } catch (error) { message(error.message); }
-window.addEventListener('hashchange', () => { if (window.location.hash) { try { pairLink(window.location.href); } catch (error) { message(error.message); } } });
-$('#pair').onclick = () => { try { pairLink($('#pair-link').value.trim()); message('Pairing ready. Tap Start Sensors.'); } catch (error) { message(error.message); } };
 function freshLocation() {
   if (!location || Date.now() / 1000 - location.timestamp > 10 || location.accuracyMeters > 20 || !withinCornell(location)) throw new Error('A fresh, precise Cornell location is needed.');
   return location;
@@ -67,10 +59,7 @@ const Motion = nativePlatform() ? NativeMotionService : MotionService;
 const motion = new Motion({
   bridge: Health, config: { rotationLimitRadS: SHOCK_GATE.gyroLimitDegS * Math.PI / 180 },
   onRawSample: sample => rawTransport?.enqueue(sample),
-  onSamples: () => {
-    lastMotion = Date.now() / 1000;
-    if (nativePlatform() && !nativeMotionSeen) { nativeMotionSeen = true; $('#sensor-status').textContent = 'Motion sensors active'; }
-  },
+  onSamples: () => { lastMotion = Date.now() / 1000; },
   onStatus: status => {
     if (status.state === 'sample-dropped') lastUnsafeMotion = Date.now() / 1000;
     if (status.state === 'listening') $('#sensor-status').textContent = 'Motion permission granted · waiting for sensor samples';
@@ -94,68 +83,53 @@ async function submitPassage() {
   try { await request('/api/telemetry/passage', { api: pairing.api, token: pairing.token, method: 'POST', body: { device_id: pairing.deviceId, passage_id: crypto.randomUUID(), shock_detected: false,
     trace: trace.map(point => ({ lat: point.lat, lng: point.lon, timestamp: point.timestamp, accuracy_meters: point.accuracyMeters })) } }); } catch (error) { message(error.message); }
 }
-const health = new NativeHealthService({
-  bridge: Health,
-  onSamples: samples => {
-    if (!sharing) return;
-    const events = analyzer.ingest(samples, locations); for (const event of events) transport.enqueue(event);
-    $('#health-status').textContent = samples.length ? `Health measurements checked · ${events.length ? 'terrain changes matched to location' : 'no new terrain changes'}` : 'No new health measurements received.';
-  },
-  onStatus: status => {
-    if (!sharing) return;
-    $('#health-status').textContent = status.state === 'waiting' ? 'Native health access requested · waiting for measurements' : status.state === 'error' ? `Health: ${status.reason}` : status.reason;
-  },
-});
+async function readHealth() {
+  const activeTransport = transport;
+  try { const { samples } = await Health.readSamples(); if (!sharing || activeTransport !== transport) return; for (const event of analyzer.ingest(samples, locations)) activeTransport.enqueue(event); }
+  catch (error) { if (sharing && activeTransport === transport) $('#health-status').textContent = `Health: ${error.message}`; }
+}
 $('#start').onclick = async () => {
   navigation.unlockAudio();
-  if (!pairing) { message('Scan a Connect Phone QR code or paste its pairing link first.'); openPairing(); return; }
   if (!window.isSecureContext) { message('Open this phone page over HTTPS to enable motion and location.'); return; }
-  const restoreFocus = document.activeElement === $('#start');
   $('#start').disabled = true; sharing = true; const generation = ++sharingGeneration;
-  nativeMotionSeen = false;
   // iOS permission request runs directly in this tap, before any await/network call.
-  const motionRequest = motion.start().catch(error => {
+  const motionRequest = motion.start().then(() => true).catch(error => {
     if (generation !== sharingGeneration) return;
-    rawTransport?.stop(); $('#sensor-status').textContent = `Motion: ${error.message}`; message(`Motion: ${error.message} Manual reporting remains available.`);
+    rawTransport?.stop(); $('#sensor-status').textContent = `Motion: ${error.message}`; message(`Motion: ${error.message} Manual reporting remains available.`); return false;
   });
-  const onRejected = (reason, status) => {
-    if (generation !== sharingGeneration) return;
-    if ([401, 403].includes(status)) {
-      stopSensors(); pairing = null;
-      $('#connection').textContent = 'Pairing ended';
-      $('#phone-status').textContent = 'Create a new Connect Phone link and paste it below to resume sharing.';
-      $('#pair-link').value = ''; openPairing();
-    }
-    message(reason);
-  };
-  transport = new DeviceTransport({ ...pairing, onStatus: status => { $('#connection').textContent = status; }, onRejected, onSent: countReport }); transport.start();
-  if (!nativePlatform()) {
-    rawTransport = new RawMotionTransport({ ...pairing, getLocation: () => { try { const point = freshLocation(); return { lat: point.lat, lng: point.lon, accuracy_meters: point.accuracyMeters, timestamp: point.timestamp }; } catch { return null; } },
-      onStatus: status => { $('#sensor-status').textContent = status; }, onRejected, onSent: countReport }); rawTransport.start();
-  }
-  ensureLocation().catch(error => { if (generation === sharingGeneration) $('#phone-status').textContent = error.message; });
+  const locationRequest = ensureLocation().catch(error => { if (generation === sharingGeneration) $('#phone-status').textContent = error.message; });
   $('#start').hidden = true; $('#stop').hidden = false;
-  if (restoreFocus) $('#stop').focus();
   try {
-    await motionRequest; if (!sharing || generation !== sharingGeneration) return;
-    if (nativePlatform()) await health.start();
-  } catch (error) { if (generation === sharingGeneration) $('#health-status').textContent = error.message; }
+    await ensureSession(); if (!sharing || generation !== sharingGeneration) return;
+    const motionAllowed = await motionRequest; if (!sharing || generation !== sharingGeneration) return;
+    transport = new DeviceTransport({ ...pairing, onStatus: status => { $('#connection').textContent = status; }, onRejected: message, onSent: countReport }); transport.start();
+    if (!nativePlatform() && motionAllowed) {
+      rawTransport = new WebSocketMotionTransport({ ...pairing, getLocation: () => { try { const point = freshLocation(); return { lat: point.lat, lng: point.lon, accuracy_meters: point.accuracyMeters, timestamp: point.timestamp }; } catch { return null; } },
+        onStatus: status => { $('#sensor-status').textContent = status; }, onSent: countReport }); rawTransport.start();
+    }
+    await locationRequest; if (!sharing || generation !== sharingGeneration) return;
+    if (nativePlatform()) {
+      const availability = await Health.availability(); if (!sharing || generation !== sharingGeneration) return;
+      if (availability.available) {
+        await Health.requestPermissions(); if (!sharing || generation !== sharingGeneration) return;
+        await Health.startMonitoring(); if (!sharing || generation !== sharingGeneration) { await Health.stopMonitoring(); return; }
+        healthTimer = setInterval(readHealth, 30000); readHealth(); $('#health-status').textContent = 'Native health access requested · fresh samples matched to location';
+      } else $('#health-status').textContent = availability.reason || 'Native health is unavailable.';
+    }
+  } catch (error) { if (generation === sharingGeneration) { stopSensors(); message(error.message); } }
   finally { if (generation === sharingGeneration) $('#start').disabled = false; }
 };
 function stopSensors() {
-  const restoreFocus = document.activeElement === $('#stop');
-  sharing = false; ++sharingGeneration; motion.stop(); rawTransport?.stop(); rawTransport = null; transport?.stop();
-  if (nativePlatform()) health.stop().catch(() => {});
+  sharing = false; ++sharingGeneration; motion.stop(); rawTransport?.stop(); rawTransport = null; transport?.stop(); clearInterval(healthTimer);
+  if (nativePlatform()) Health.stopMonitoring().catch(() => {});
   locations.length = 0; $('#start').hidden = false; $('#start').disabled = false; $('#stop').hidden = true;
-  if (restoreFocus) $('#start').focus();
-  $('#connection').textContent = pairing ? 'Paired' : 'Not paired'; $('#sensor-status').textContent = 'Sensors stopped';
-  $('#health-status').textContent = nativePlatform() ? 'Native health sharing stopped' : 'Browser mode · motion sensing and manual reports';
+  $('#connection').textContent = 'Ready'; $('#sensor-status').textContent = 'Sensors stopped';
   $('#phone-status').textContent = 'Sensor sharing stopped. GPS navigation remains active.';
 }
 $('#stop').onclick = stopSensors;
 window.addEventListener('pagehide', () => { stopSensors(); ++locationGeneration; stopLocation(); locationStart = null; navigation.stop(); });
 window.addEventListener('pageshow', event => {
-  if (event.persisted) { navigation.resume(); if (location) ensureLocation().catch(message); }
+  if (event.persisted) { navigation.connect(); navigation.resize.observe($('#navigation-map')); navigation.map.invalidateSize(); if (location) ensureLocation().catch(message); }
 });
 
 function setReport(point) {
@@ -163,10 +137,21 @@ function setReport(point) {
   reportLocation = Object.freeze({ ...point }); $('#phone-map').hidden = false;
   const coordinate = [point.lat, point.lon], L = window.L;
   if (!reportMap) {
-    reportMap = L.map('phone-map', { dragging: false, touchZoom: false, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false, zoomControl: false });
+    reportMap = L.map('phone-map', { dragging: true, touchZoom: true, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false, zoomControl: false });
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(reportMap);
   }
-  reportMarker?.remove(); reportMarker = L.marker(coordinate, { draggable: false, keyboard: false, interactive: false }).addTo(reportMap);
+  reportMarker?.remove(); reportMarker = L.marker(coordinate, { draggable: true, keyboard: true, autoPan: true, title: 'Drag pin to exact hazard location' }).addTo(reportMap);
+  reportMarker.on('dragend', () => {
+    if (reportPayload || reportSending) return;
+    const pin = reportMarker.getLatLng(), point = { lat: pin.lat, lon: pin.lng };
+    if (!withinCornell(point)) {
+      reportMarker.setLatLng([reportLocation.lat, reportLocation.lon]);
+      $('#location-status').textContent = 'Keep the hazard pin inside Cornell coverage.'; return;
+    }
+    reportLocation = Object.freeze({ ...reportLocation, ...point, accuracyMeters: 0, timestamp: Date.now() / 1000 });
+    $('#chosen-coordinate').textContent = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
+    $('#location-status').textContent = 'Hazard pin moved. Choose a category, then confirm.';
+  });
   requestAnimationFrame(() => { reportMap.invalidateSize(); reportMap.setView(coordinate, 18, { animate: false }); });
   $('#location-status').textContent = `GPS captured · accuracy ±${Math.round(point.accuracyMeters)} m. Choose a category.`;
   $('#chosen-coordinate').textContent = `${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}`;
@@ -198,19 +183,19 @@ document.querySelectorAll('[data-metric]').forEach(button => { button.onclick = 
 }; });
 $('#confirm-report').onclick = async () => {
   if (!reportLocation || !reportCategory || reportSending) return;
-  if (!pairing) { $('#location-status').textContent = 'Pair your phone with Connect Phone before confirming a report.'; return; }
   if (Date.now() / 1000 - reportLocation.timestamp > 120) { $('#location-status').textContent = 'This GPS fix expired. Close and reopen the report to capture it again.'; return; }
-  reportPayload ??= { device_id: pairing.deviceId, event_id: crypto.randomUUID(), lat: reportLocation.lat, lng: reportLocation.lon,
-    accuracy_meters: reportLocation.accuracyMeters, source: 'manual', metric_type: reportCategory.metric, hazard_category: reportCategory.category, severity: 1, timestamp: reportLocation.timestamp };
   const generation = reportGeneration; reportSending = true; $('#confirm-report').disabled = true; $('#confirm-report').textContent = 'Sending…';
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 10000);
   document.querySelectorAll('[data-metric]').forEach(button => { button.disabled = true; });
+  reportMarker.dragging.disable();
   try {
+    await ensureSession();
+    if (generation !== reportGeneration || !$('#phone-report-dialog').open) return;
+    reportPayload ??= { device_id: pairing.deviceId, event_id: crypto.randomUUID(), lat: reportLocation.lat, lng: reportLocation.lon,
+    accuracy_meters: reportLocation.accuracyMeters, source: 'manual', metric_type: reportCategory.metric, hazard_category: reportCategory.category, severity: 1, timestamp: reportLocation.timestamp };
     const result = await request('/api/telemetry/event', { api: pairing.api, token: pairing.token, method: 'POST', body: reportPayload, signal: controller.signal });
     if (!result.accepted) throw new Error(result.reason || 'The report was not accepted.');
-    // A duplicate acknowledgement confirms a previous attempt whose response was lost.
-    // This dialog counts only after its first successful acknowledgement.
-    countReport();
+    if (!result.duplicate) countReport();
     if (generation === reportGeneration) { $('#phone-report-dialog').close(); message('Report confirmed. The live map has been updated.'); }
   } catch (error) {
     if (generation === reportGeneration) {
