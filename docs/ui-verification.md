@@ -1,5 +1,17 @@
 # Cornell map verification
 
+## Current deployed mobile verification — October 3, 2026
+
+Production is served over HTTPS at https://www.clearpath.wiki; https://clearpath.wiki redirects there. Render now deploys `main`. The mobile planner provides touch/keyboard autocomplete for both endpoints, separate start/end pin controls, physical walking time, complete planner collapse on success, and Edit route / Return to map controls. Browser verification covered 375 × 812 portrait and 812 × 375 landscape views.
+
+Tested routes: Ho Plaza → Arts Quad (340 m, 5 min), Gates Hall → Bailey Hall (779 m, 10 min), and Uris Hall → Ho Plaza (291 m, 4 min). The first two also passed through the public production interface. Invalid destinations retain the planner; accidental map taps leave a running trip unchanged. Sound, pin cancellation, route switching, pairing failure, and report cancellation were exercised without browser console errors.
+
+Isolated synthetic closure tests disabled the direct route immediately, allowed explicit acceptance of a 350 m open alternative, and refused to start a closed single-path walk without a detour. All 99 automated tests and production bundling passed. Both Android APK and iOS simulator builds passed in [native CI](https://github.com/rzli2106/bigredhacks2026/actions/runs/37110056213). The local verified APK is `artifacts/native/clearpath-android-debug.apk` (ignored build output).
+
+Physical phone GPS/sensor delivery, HealthKit background wakes, and audible playback on actual phones remain unverified. Earlier records below describe historical local checks and their limitations at that time.
+
+## Historical local verification
+
 Tested locally at http://127.0.0.1:5173 using the browser UI, with desktop and 375 × 812 phone layouts.
 
 | User action | Result |

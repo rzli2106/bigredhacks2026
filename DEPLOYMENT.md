@@ -6,6 +6,8 @@ The checked-in `render.yaml` sets the www.clearpath.wiki HTTPS/WSS URLs, exact w
 
 Add `clearpath.wiki` under the service’s **Settings → Custom Domains**, then copy the exact DNS target displayed by Render into Porkbun. Update only the root parking record and the matching `www` parking record if adding that hostname; preserve mail and unrelated records. Wait until Render verifies DNS and issues a certificate. Test HTTPS root, `/mobile`, `/api/health`, pairing, and WSS before calling the deployment complete. Native builds use the same URLs; see `native/README.md`.
 
+Production now deploys the tested `main` branch. After merging a feature or committing a minor fix, use **Manual Deploy → Deploy latest commit** and verify that the successful deployment's Source matches the intended main commit. Check the public `/mobile` route and `/api/health` after rollout. See `docs/ui-verification.md` for current test evidence and physical-device limitations.
+
 The sections below retain local development and alternative split-host deployment instructions.
 
 ## Alternative hosting and local development
