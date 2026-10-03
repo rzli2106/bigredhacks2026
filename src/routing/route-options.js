@@ -5,8 +5,10 @@ const samePath = (a, b) => a.status === 'ok' && b.status === 'ok' && a.edgeIds.j
 /** Two physical walking routes with real travel times, never penalty-derived ETAs. */
 export function walkingRouteOptions(graph, index, from, to, { costs, events = [], timestamp = Date.now() / 1000 } = {}) {
   const hazardEdges = new Set(events.flatMap(event => event.edge_ids));
-  const decorate = route => ({ ...route, hazard_ids: route.status === 'ok'
-    ? events.filter(event => event.edge_ids.some(id => route.edgeIds.includes(id))).map(event => event.id) : [] });
+  const decorate = route => {
+    const hazards = route.status === 'ok' ? events.filter(event => event.edge_ids.some(id => route.edgeIds.includes(id))) : [];
+    return { ...route, hazard_ids: hazards.map(event => event.id), blocked: hazards.some(event => event.blocked) };
+  };
   const direct = decorate(routeBetweenPins(graph, index, from, to, { timestamp }));
   const registry = excluded => ({
     graph,

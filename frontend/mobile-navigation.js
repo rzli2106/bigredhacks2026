@@ -1,7 +1,7 @@
 import { request, subscribe, configuration } from './connection.js';
 import { CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
 import { PlaceSearch } from './place-search.js';
-import { resolvePlace, hazardName, RouteAlerts, routeMinutes, etaDelta, hazardAhead, remainingSeconds, sameRoute } from './navigation-state.js';
+import { resolvePlace, hazardName, RouteAlerts, routeMinutes, etaDelta, hazardAhead, remainingSeconds, sameRoute, routeHasClosure } from './navigation-state.js';
 import { haversine } from '../src/routing/geo.js';
 
 const $ = selector => document.querySelector(selector);
@@ -144,6 +144,10 @@ export class MobileNavigation {
         $('#route-status').textContent = options.direct.status === 'off-path' ? `The ${options.direct.endpoint} is more than 40 m from a walking path.` : 'No walking connection was found.';
         return;
       }
+      if (newTrip && options.direct.blocked && !options.alternative) {
+        $('#route-status').textContent = 'A reported closure blocks this walk. No open detour was found. Choose another destination or try again later.';
+        return;
+      }
       if (newTrip) { this.active = options.direct.hazard_ids.length && options.alternative ? options.alternative : options.direct; this.activeChoice = this.active === options.direct ? 'direct' : 'alternative'; this.setPlannerOpen(false); }
       this.renderRoutes(newTrip); this.renderAlert(false);
       $('#route-status').textContent = options.alternative ? 'Walking estimates · tap a route to select it' : 'No distinct hazard-free alternative is available.';
@@ -172,10 +176,11 @@ export class MobileNavigation {
     for (const item of available) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'route-card';
       button.setAttribute('aria-pressed', String(sameRoute(this.active, item.route)));
-      button.disabled = this.snapshot && (options.instance_id !== this.snapshot.instance_id || options.revision < this.snapshot.revision);
+      const closed = item.route.blocked || routeHasClosure(item.route, this.snapshot?.events);
+      button.disabled = closed || (this.snapshot && (options.instance_id !== this.snapshot.instance_id || options.revision < this.snapshot.revision));
       const title = document.createElement('strong'); title.textContent = `${item.label} · ${routeMinutes(item.route.durationSeconds)} min`;
       const detail = document.createElement('span'); const eta = new Date(Date.now() + item.route.durationSeconds * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      detail.textContent = `${Math.round(item.route.distanceMeters)} m · ETA ${eta}${item.route.hazard_ids.length ? ' · reported hazard' : ''}`;
+      detail.textContent = closed ? 'Closed · choose an open route' : `${Math.round(item.route.distanceMeters)} m · ETA ${eta}${item.route.hazard_ids.length ? ' · reported hazard' : ''}`;
       button.append(title, detail);
       button.onclick = () => { this.active = item.route; this.activeChoice = item.key; this.pending = []; this.hideAlert(); this.renderRoutes(); };
       $('#route-options').append(button);
@@ -193,7 +198,8 @@ export class MobileNavigation {
   renderActive() {
     if (!this.active) return;
     $('#active-route').hidden = false;
-    $('#active-route').textContent = `${routeMinutes(this.active.durationSeconds)} min walk · ${Math.round(this.active.distanceMeters)} m · ${routeMinutes(remainingSeconds(this.active, this.liveStart ? this.getLocation() : null))} min remaining`;
+    const closedAhead = this.snapshot?.events.some(event => event.blocked && hazardAhead(this.active, event, this.liveStart ? this.getLocation() : null));
+    $('#active-route').textContent = closedAhead ? 'Reported closure ahead · choose an open route before continuing' : `${routeMinutes(this.active.durationSeconds)} min walk · ${Math.round(this.active.distanceMeters)} m · ${routeMinutes(remainingSeconds(this.active, this.liveStart ? this.getLocation() : null))} min remaining`;
   }
   onSnapshot(snapshot) {
     const fresh = this.alerts.observe(snapshot, this.active, this.getLocation());
