@@ -37,3 +37,26 @@ test('missing native sensors rejects cleanly and permits a retry',async()=>{
   await assert.rejects(service.start(),/Gyroscope/);assert.equal(f.listeners.size,0);assert.equal(service.running,false);
   fail=false;await service.start();assert.equal(service.running,true);await service.stop();
 });
+
+test('native stop failure still removes its listener and suppresses later samples',async()=>{
+  const f=fixture(),statuses=[],samples=[];
+  f.bridge.stopMotion=async()=>{throw new Error('Native stop failed');};
+  const service=new NativeMotionService({...f,onStatus:s=>statuses.push(s),onSamples:s=>samples.push(...s)});
+  await service.start();await service.stop();pulse(f.emit);
+  assert.equal(f.listeners.size,0);assert.equal(service.running,false);assert.equal(samples.length,0);
+  assert.equal(statuses.at(-1).state,'error');assert.match(statuses.at(-1).reason,/Native stop failed/);
+});
+test('failed startup attempts native stop even when removing its listener fails',async()=>{
+  const f=fixture(async()=>{throw new Error('Original sensor failure');});
+  let stopAttempted=false,removeAttempted=false;
+  f.bridge.addListener=async()=>({remove:async()=>{removeAttempted=true;throw new Error('Listener removal failed');}});
+  f.bridge.stopMotion=async()=>{stopAttempted=true;};
+  const service=new NativeMotionService(f);
+  await assert.rejects(service.start(),/Original sensor failure/);
+  assert.equal(removeAttempted,true);assert.equal(stopAttempted,true);assert.equal(service.running,false);
+});
+test('cleanup handles synchronous bridge failures without skipping listener removal',async()=>{
+  const f=fixture();f.bridge.stopMotion=()=>{throw new Error('Bridge unavailable');};
+  const service=new NativeMotionService(f);await service.start();await service.stop();
+  assert.equal(f.listeners.size,0);assert.equal(service.running,false);
+});

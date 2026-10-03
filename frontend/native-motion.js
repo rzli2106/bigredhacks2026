@@ -24,20 +24,29 @@ export class NativeMotionService {
         });
         if(generation!==this.generation){await listener.remove();return;}
         this.pipeline.reset();await this.bridge.startMotion();
-        if(generation!==this.generation){await this.bridge.stopMotion();await listener.remove();return;}
+        if(generation!==this.generation){await this.release(listener);return;}
         this.listener=listener;this.running=true;
         this.document?.addEventListener('visibilitychange',this.visibility);
         this.onStatus({state:'listening'});
-      } catch(error) {await listener?.remove();await this.bridge.stopMotion().catch(()=>{});throw error;}
+      } catch(error) {await this.release(listener).catch(()=>{});throw error;}
       finally {if(generation===this.generation)this.starting=false;}
     });
     return this.pending;
+  }
+  async release(listener) {
+    // Neither a native stop failure nor a listener failure may skip the other cleanup.
+    const results=await Promise.allSettled([
+      Promise.resolve().then(()=>this.bridge.stopMotion()),
+      Promise.resolve().then(()=>listener?.remove()),
+    ]);
+    const failed=results.find(result=>result.status==='rejected');
+    if(failed)throw failed.reason;
   }
   stop() {
     ++this.generation;this.running=false;this.starting=false;this.pipeline.reset();
     this.document?.removeEventListener('visibilitychange',this.visibility);
     const listener=this.listener;this.listener=null;
-    this.pending=this.pending.catch(()=>{}).then(async()=>{await this.bridge.stopMotion();await listener?.remove();}).catch(error=>this.onStatus({state:'error',reason:error.message}));
+    this.pending=this.pending.catch(()=>{}).then(()=>this.release(listener)).catch(error=>this.onStatus({state:'error',reason:error.message}));
     this.onStatus({state:'stopped'});return this.pending;
   }
 }
