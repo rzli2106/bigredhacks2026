@@ -1,5 +1,6 @@
 import { MotionService } from '../src/motion-service.js';
 import { NativeMotionService } from './native-motion.js';
+import { NativeHealthService } from './native-health.js';
 import { captureLocation, watchLocation } from './location.js';
 import { withinCornell } from '../src/ui/cornell.js';
 import { SHOCK_GATE } from '../src/telemetry/policy.js';
@@ -10,7 +11,7 @@ import { MobileNavigation } from './mobile-navigation.js';
 import { readPairingLink } from './pairing.js';
 
 const $ = selector => document.querySelector(selector);
-let pairing, transport, rawTransport, navigation, healthTimer, location, locationStart;
+let pairing, transport, rawTransport, navigation, location, locationStart;
 let sharing = false, sharingGeneration = 0, locationGeneration = 0, sent = 0;
 let nativeMotionSeen = false;
 let stopLocation = () => {}, lastMotion = 0, lastUnsafeMotion = 0, lastShock = 0, lastPassage = 0;
@@ -93,15 +94,18 @@ async function submitPassage() {
   try { await request('/api/telemetry/passage', { api: pairing.api, token: pairing.token, method: 'POST', body: { device_id: pairing.deviceId, passage_id: crypto.randomUUID(), shock_detected: false,
     trace: trace.map(point => ({ lat: point.lat, lng: point.lon, timestamp: point.timestamp, accuracy_meters: point.accuracyMeters })) } }); } catch (error) { message(error.message); }
 }
-async function readHealth() {
-  const activeTransport = transport;
-  try {
-    const { samples } = await Health.readSamples(); if (!sharing || activeTransport !== transport) return;
-    const events = analyzer.ingest(samples, locations); for (const event of events) activeTransport.enqueue(event);
+const health = new NativeHealthService({
+  bridge: Health,
+  onSamples: samples => {
+    if (!sharing) return;
+    const events = analyzer.ingest(samples, locations); for (const event of events) transport.enqueue(event);
     $('#health-status').textContent = samples.length ? `Health measurements checked · ${events.length ? 'terrain changes matched to location' : 'no new terrain changes'}` : 'No new health measurements received.';
-  }
-  catch (error) { if (sharing && activeTransport === transport) $('#health-status').textContent = `Health: ${error.message}`; }
-}
+  },
+  onStatus: status => {
+    if (!sharing) return;
+    $('#health-status').textContent = status.state === 'waiting' ? 'Native health access requested · waiting for measurements' : status.state === 'error' ? `Health: ${status.reason}` : status.reason;
+  },
+});
 $('#start').onclick = async () => {
   navigation.unlockAudio();
   if (!pairing) { message('Scan a Connect Phone QR code or paste its pairing link first.'); openPairing(); return; }
@@ -132,20 +136,13 @@ $('#start').onclick = async () => {
   $('#start').hidden = true; $('#stop').hidden = false;
   try {
     await motionRequest; if (!sharing || generation !== sharingGeneration) return;
-    if (nativePlatform()) {
-      const availability = await Health.availability(); if (!sharing || generation !== sharingGeneration) return;
-      if (availability.available) {
-        await Health.requestPermissions(); if (!sharing || generation !== sharingGeneration) return;
-        await Health.startMonitoring(); if (!sharing || generation !== sharingGeneration) { await Health.stopMonitoring(); return; }
-        healthTimer = setInterval(readHealth, 30000); readHealth(); $('#health-status').textContent = 'Native health access requested · waiting for measurements';
-      } else $('#health-status').textContent = availability.reason || 'Native health is unavailable.';
-    }
+    if (nativePlatform()) await health.start();
   } catch (error) { if (generation === sharingGeneration) $('#health-status').textContent = error.message; }
   finally { if (generation === sharingGeneration) $('#start').disabled = false; }
 };
 function stopSensors() {
-  sharing = false; ++sharingGeneration; motion.stop(); rawTransport?.stop(); rawTransport = null; transport?.stop(); clearInterval(healthTimer);
-  if (nativePlatform()) Health.stopMonitoring().catch(() => {});
+  sharing = false; ++sharingGeneration; motion.stop(); rawTransport?.stop(); rawTransport = null; transport?.stop();
+  if (nativePlatform()) health.stop().catch(() => {});
   locations.length = 0; $('#start').hidden = false; $('#start').disabled = false; $('#stop').hidden = true;
   $('#connection').textContent = pairing ? 'Paired' : 'Not paired'; $('#sensor-status').textContent = 'Sensors stopped';
   $('#health-status').textContent = nativePlatform() ? 'Native health sharing stopped' : 'Browser mode · motion sensing and manual reports';
