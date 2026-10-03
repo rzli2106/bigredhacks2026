@@ -21,6 +21,10 @@ export class MobileNavigation {
     this.pinTarget = 'end';
     $('#edit-route').onclick = () => { this.setPlannerOpen(true); $('#start-location').focus(); };
     $('#return-to-map').onclick = () => this.setPlannerOpen(false);
+    $('#retry-route').onclick = () => {
+      if (!this.active || this.loading) return;
+      clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.refresh(false);
+    };
     for (const target of ['start', 'end']) $('#pin-' + target).onclick = () => {
       this.pinTarget = target;
       this.placingPin = true;
@@ -81,7 +85,7 @@ export class MobileNavigation {
     this.from = null; this.to = null; this.snapshot = null; this.signature = null;
     this.hazards.clearLayers();
     $('#route-status').textContent = 'Connection changed. Tap Start Route to plan this walk.';
-    this.options = null; this.active = null; this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true; this.setPlannerOpen(true); this.hideAlert(); this.connect();
+    this.options = null; this.active = null; this.routeUpdateError = ''; this.renderUpdateState(); this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true; this.setPlannerOpen(true); this.hideAlert(); this.connect();
   }
   connect() {
     const configured = configuration();
@@ -118,7 +122,7 @@ export class MobileNavigation {
   async generate() {
     clearTimeout(this.refreshTimer); this.refreshScheduled = false;
     this.cancelRequest(); this.pending = []; this.hideAlert();
-    this.active = null; this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true;
+    this.active = null; this.routeUpdateError = ''; this.renderUpdateState(); this.routes.clearLayers(); $('#route-options').replaceChildren(); $('#active-route').hidden = true;
     $('#return-to-map').hidden = true;
     $('#find-routes').disabled = true; $('#route-status').textContent = 'Finding walking routes…';
     const generation = this.planningId;
@@ -136,7 +140,7 @@ export class MobileNavigation {
   async refresh(newTrip = false) {
     if (!this.from || !this.to) return;
     this.controller?.abort(); const id = ++this.requestId; this.controller = new AbortController();
-    this.loading = true; this.lastRefresh = Date.now();
+    this.loading = true; this.lastRefresh = Date.now(); this.renderUpdateState();
     const controller = this.controller, timeout = setTimeout(() => controller.abort(), 10000);
     $('#accept-reroute').disabled = true;
     this.renderAlert(false);
@@ -146,7 +150,7 @@ export class MobileNavigation {
       this.options = options;
       if (options.direct.status !== 'ok') {
         if (newTrip) { this.active = null; this.routes.clearLayers(); $('#route-options').replaceChildren(); }
-        $('#route-status').textContent = options.direct.status === 'off-path' ? `The ${options.direct.endpoint} is more than 40 m from a walking path.` : 'No walking connection was found.';
+        this.routeUpdateFailed(options.direct.status === 'off-path' ? `The ${options.direct.endpoint} is more than 40 m from a walking path.` : 'No walking connection was found.');
         return;
       }
       if (newTrip && options.direct.blocked && !options.alternative) {
@@ -154,18 +158,34 @@ export class MobileNavigation {
         return;
       }
       if (newTrip) { this.active = options.direct.hazard_ids.length && options.alternative ? options.alternative : options.direct; this.activeChoice = this.active === options.direct ? 'direct' : 'alternative'; this.setPlannerOpen(false); }
+      this.routeUpdateError = ''; this.renderUpdateState();
       this.renderRoutes(newTrip); this.renderAlert(false);
       $('#route-status').textContent = options.alternative ? 'Walking estimates · tap a route to select it' : 'No distinct hazard-free alternative is available.';
     } catch (error) {
       if (id === this.requestId) {
-        $('#route-status').textContent = error.name === 'AbortError' ? 'Route update timed out. Try Start Route again.' : `Route update unavailable. ${error.message}`;
-        this.options = null; this.renderAlert(false);
+        this.routeUpdateFailed(error.name === 'AbortError' ? 'Route update timed out.' : 'Route update unavailable.');
+        this.renderAlert(false);
       }
-    } finally { clearTimeout(timeout); if (id === this.requestId) { this.loading = false; this.renderAlert(false); } }
+    } finally { clearTimeout(timeout); if (id === this.requestId) { this.loading = false; this.renderUpdateState(); this.renderAlert(false); } }
+  }
+  routeUpdateFailed(message) {
+    $('#route-status').textContent = `${message} Try again.`;
+    this.options = null; $('#route-options').replaceChildren();
+    this.routeUpdateError = `${message} Showing your previous route.`;
+    this.renderUpdateState();
+  }
+  renderUpdateState() {
+    const hidden = !this.active || !this.routeUpdateError;
+    if (hidden && document.activeElement === $('#retry-route')) $('#edit-route').focus();
+    $('#route-update-warning').hidden = hidden;
+    $('#route-update-status').textContent = this.routeUpdateError || '';
+    $('#retry-route').disabled = !!this.loading;
   }
   renderRoutes(fit = false) {
-    this.routes.clearLayers(); const L = window.L, options = this.options;
-    if (!options || !this.active) return;
+    const options = this.options;
+    if (!this.active) return;
+    if (!options) { this.renderActive(); return; }
+    this.routes.clearLayers(); const L = window.L;
     // Keep the actual selected route visible when a server update proposes a new line.
     const available = [{ key: 'direct', label: 'Direct', route: options.direct },
       ...(options.alternative ? [{ key: 'alternative', label: 'Alternative', route: options.alternative }] : [])];
