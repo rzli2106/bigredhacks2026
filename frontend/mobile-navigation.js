@@ -120,8 +120,17 @@ export class MobileNavigation {
     this.unsubscribe?.();
     const configured = configuration();
     this.unsubscribe = subscribe(snapshot => this.onSnapshot(snapshot), status => {
-      $('#map-stream').textContent = status === 'Live' ? 'Live hazards' : status;
+      this.setStreamStatus(status === 'Live' ? 'Waiting for hazards' : status);
     }, { ws: this.api === configured.api ? configured.ws : `${this.api.replace(/^http/, 'ws')}/ws/stream` });
+  }
+  setStreamStatus(status) {
+    this.streamStatus = status; $('#map-stream').textContent = status === 'Live' ? 'Live hazards' : status;
+    this.renderStreamStatus();
+  }
+  renderStreamStatus() {
+    const paused = this.streamStatus && this.streamStatus !== 'Live';
+    $('#hazard-stream-status').hidden = !this.active || !paused;
+    $('#hazard-stream-status').textContent = paused ? (this.snapshot ? 'Hazard updates paused · showing last known reports.' : 'Live hazard feed unavailable · reports may be missing.') : '';
   }
   updateLocation(point) {
     const L = window.L, coordinate = [point.lat, point.lon];
@@ -210,6 +219,7 @@ export class MobileNavigation {
     this.renderUpdateState();
   }
   renderUpdateState() {
+    this.renderStreamStatus();
     const hidden = !this.active || !this.routeUpdateError;
     if (hidden && document.activeElement === $('#retry-route')) $('#edit-route').focus();
     $('#route-update-warning').hidden = hidden;
@@ -257,12 +267,13 @@ export class MobileNavigation {
   }
   renderActive() {
     if (!this.active) return;
-    $('#active-route').hidden = false;
+    $('#active-route').hidden = false; this.renderStreamStatus();
     const closedAhead = this.snapshot?.events.some(event => event.blocked && hazardAhead(this.active, event, this.liveStart ? this.getLocation() : null));
     $('#active-route').textContent = closedAhead ? 'Reported closure ahead · choose an open route before continuing' : `${routeMinutes(this.active.durationSeconds)} min walk · ${Math.round(this.active.distanceMeters)} m · ${routeMinutes(remainingSeconds(this.active, this.liveStart ? this.getLocation() : null))} min remaining`;
   }
   onSnapshot(snapshot) {
     const fresh = this.alerts.observe(snapshot, this.active, this.getLocation());
+    this.setStreamStatus('Live');
     const signature = snapshot.events.map(event => `${event.id}:${event.timestamp}`).sort().join('|');
     const changed = signature !== this.signature || snapshot.revision !== this.snapshot?.revision || snapshot.instance_id !== this.snapshot?.instance_id;
     this.signature = signature; this.snapshot = snapshot;

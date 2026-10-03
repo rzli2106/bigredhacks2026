@@ -4,7 +4,7 @@ import { MobileNavigation } from '../frontend/mobile-navigation.js';
 const deferred = () => { let resolve,reject; const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject}; };
 const settle = async () => { for(let i=0;i<10;i++)await Promise.resolve(); };
 function fixture(t){
-  const elements=new Map(['locate-me','route-update-warning','route-update-status','retry-route','route-options','active-route','return-to-map','find-routes','route-status','start-location','destination-location'].map(id=>[`#${id}`,{disabled:false,hidden:false,value:'',textContent:'',replaceChildren(){}}]));
+  const elements=new Map(['hazard-stream-status','locate-me','route-update-warning','route-update-status','retry-route','route-options','active-route','return-to-map','find-routes','route-status','start-location','destination-location'].map(id=>[`#${id}`,{disabled:false,hidden:false,value:'',textContent:'',replaceChildren(){}}]));
   elements.get('#start-location').value='My live location';elements.get('#destination-location').value='Arts Quad';
   const old=globalThis.document;globalThis.document={querySelector:id=>elements.get(id)};
   t.after(()=>{if(old===undefined)delete globalThis.document;else globalThis.document=old;});

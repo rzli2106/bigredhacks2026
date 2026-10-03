@@ -8,7 +8,7 @@ test('mobile snapshot rendering fades hazard fill and outline while active closu
   globalThis.document={createElement:()=>({textContent:''})};
   t.after(()=>{if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;});
   const nav=Object.create(MobileNavigation.prototype);
-  Object.assign(nav,{alerts:{observe:()=>[]},getLocation:()=>null,pending:[],hazards:{clearLayers(){}},renderAlert(){},chime(){}});
+  Object.assign(nav,{alerts:{observe:()=>[]},getLocation:()=>null,pending:[],hazards:{clearLayers(){}},setStreamStatus(){},renderAlert(){},chime(){}});
   const base={timestamp:T,half_life:1800,initial_penalty:50,coordinate:{lat:42.4468,lng:-76.485},metric_type:'SENSOR_SHOCK',edge_ids:['synthetic-edge']};
   const events=[{...base,id:'fresh',timestamp:T+1800},{...base,id:'half'},{...base,id:'quarter',timestamp:T-1800},{...base,id:'closure',blocked:true,initial_penalty:null,metric_type:'MANUAL_CLOSURE'}];
   nav.onSnapshot({instance_id:'synthetic',revision:1,time:T+1800,events});
