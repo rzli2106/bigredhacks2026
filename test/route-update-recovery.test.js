@@ -58,3 +58,10 @@ test('another snapshot during an unavailable update cannot erase the selected ma
   MobileNavigation.prototype.renderRoutes.call(nav);
   assert.equal(cleared, false); assert.equal(activeRendered, true);
 });
+test('successful retry returns focus to Edit route before hiding the focused retry control', t => {
+  const { nav, elements } = fixture(t);
+  let focused = false; elements.set('#edit-route', { focus() { focused = true; } });
+  globalThis.document.activeElement = elements.get('#retry-route');
+  nav.routeUpdateError = ''; nav.renderUpdateState();
+  assert.equal(focused, true); assert.equal(elements.get('#route-update-warning').hidden, true);
+});
