@@ -107,13 +107,13 @@ class PathPulseHealthPlugin : Plugin(), SensorEventListener {
                         rows.add(JSObject().put("id", "${record.metadata.id}:speed:$i").put("metric", "speed").put("value", sample.speed.inMetersPerSecond).put("start", sample.time.toEpochMilli() / 1000.0).put("end", sample.time.toEpochMilli() / 1000.0).put("source", "health_connect"))
                     }
                     page = result.pageToken
-                } while (page != null && rows.size < 5000)
+                } while (!page.isNullOrEmpty() && rows.size < 5000)
                 page = null
                 do {
                     val result = client().readRecords(ReadRecordsRequest(StepsRecord::class, TimeRangeFilter.between(since, until), pageSize = 500, pageToken = page))
                     for (record in result.records) rows.add(JSObject().put("id", "${record.metadata.id}:steps").put("metric", "steps").put("value", record.count.toDouble()).put("start", record.startTime.toEpochMilli() / 1000.0).put("end", record.endTime.toEpochMilli() / 1000.0).put("source", "health_connect"))
                     page = result.pageToken
-                } while (page != null && rows.size < 6000)
+                } while (!page.isNullOrEmpty() && rows.size < 6000)
                 since = until.minusSeconds(120) // Catch delayed writes; the JS analyzer deduplicates record IDs.
                 call.resolve(JSObject().put("samples", JSONArray(rows)))
             } catch (e: Exception) { call.reject(e.message, e) }
