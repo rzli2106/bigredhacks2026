@@ -122,3 +122,8 @@ dialog.expanded #phone-map{height:min(46dvh,390px)}
 .location-suggestions { position:fixed; z-index:1200; background:white; border:1px solid #d5dce5; border-radius:12px; box-shadow:0 8px 30px #172c3b30; max-height:240px; overflow:auto; overscroll-behavior:contain; }
 .location-suggestions button { display:block; width:100%; min-height:48px; text-align:left; border:0; border-radius:0; background:white; color:#192c3b; padding:12px; touch-action:manipulation; }
 .location-suggestions button:hover,.location-suggestions button:focus { background:#eaf0ff; }
+
+.hazard-check{position:absolute;z-index:850;top:max(76px,calc(env(safe-area-inset-top) + 64px));left:12px;right:12px;max-width:340px;margin:auto;padding:12px 14px;background:white;border:1px solid #dce3ea;border-radius:16px;box-shadow:0 8px 24px #182b3820}
+.hazard-check p{margin:0 0 8px;font-size:14px;font-weight:650}
+.hazard-check>div{display:flex;gap:8px}
+.hazard-check button{flex:1;min-height:44px;font-size:13px}

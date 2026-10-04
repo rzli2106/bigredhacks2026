@@ -1,3 +1,4 @@
+import { PassedHazards, HazardCheckPrompt } from './passed-hazard.js';
 import { NotificationChime } from './notification-chime.js';
 import { request, subscribe, configuration } from './connection.js';
 import { CORNELL_PLACES, CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
@@ -8,10 +9,14 @@ import { incidentAppearance } from '../src/ui/reporting.js';
 
 const $ = selector => document.querySelector(selector);
 export class MobileNavigation {
-  constructor({ api, getLocation, ensureLocation, notify }) {
-    Object.assign(this, { getLocation, ensureLocation, notify });
+  constructor({ api, getLocation, ensureLocation, notify, onHazardAnswer }) {
+    Object.assign(this, { getLocation, ensureLocation, notify, onHazardAnswer });
     this.api = api || configuration().api; this.alerts = new RouteAlerts(); this.requestId = 0; this.planningId = 0;
     this.snapshot = null; this.options = null; this.active = null; this.pending = [];
+    this.passedHazards = new PassedHazards();
+    this.hazardCheck = new HazardCheckPrompt({ element: $('#hazard-check'), label: $('#hazard-check-label'), yes: $('#hazard-still-here'), no: $('#hazard-gone'),
+      onAnswer: onHazardAnswer, onError: error => this.notify(`Could not verify report: ${error.message}`),
+      returnFocus: element => { if (element.contains(document.activeElement)) $($('#route-planner').hidden ? '#edit-route' : '#start-location').focus(); } });
     this.audio = new NotificationChime(); this.sound = true;
     const L = window.L;
     this.map = L.map('navigation-map', { zoomControl: false }).fitBounds(CORNELL_VIEW);
@@ -107,6 +112,7 @@ export class MobileNavigation {
   chime() { if (this.sound) this.audio.play(); }
   setApi(api) {
     if (this.api === api) return;
+    this.hazardCheck?.hide(); this.passedHazards?.reset();
     this.cancelLocate(); this.api = api; this.unsubscribe?.(); this.cancelRequest(); this.alerts = new RouteAlerts(); this.pending = [];
     clearTimeout(this.refreshTimer); this.refreshScheduled = false;
     this.from = null; this.to = null; this.snapshot = null; this.signature = null;
@@ -142,6 +148,8 @@ export class MobileNavigation {
         this.from && haversine(point, this.from) > 15 && Date.now() - (this.lastRefresh || 0) > 10000 && !this.loading) {
       this.from = { lat: point.lat, lon: point.lon }; this.queueRefresh();
     }
+    const passed = this.passedHazards?.observe(this.active, this.snapshot, point);
+    if (passed?.length) this.hazardCheck.show(passed[0], hazardName(passed[0]));
     this.pending = this.pending.filter(event => hazardAhead(this.active, event, point)); this.renderAlert(false);
     this.renderActive();
   }
@@ -161,6 +169,7 @@ export class MobileNavigation {
     this.refreshTimer = setTimeout(() => { this.refreshScheduled = false; this.refresh(false); }, delay);
   }
   async generate() {
+    this.hazardCheck?.hide(); this.passedHazards?.reset();
     this.cancelLocate();
     clearTimeout(this.refreshTimer); this.refreshScheduled = false;
     this.cancelRequest(); this.pending = []; this.hideAlert();
@@ -276,6 +285,7 @@ export class MobileNavigation {
     const signature = snapshot.events.map(event => `${event.id}:${event.timestamp}`).sort().join('|');
     const changed = signature !== this.signature || snapshot.revision !== this.snapshot?.revision || snapshot.instance_id !== this.snapshot?.instance_id;
     this.signature = signature; this.snapshot = snapshot;
+    if (this.hazardCheck?.event && !snapshot.events.some(event => event.id === this.hazardCheck.event.id)) this.hazardCheck.hide();
     const ids = new Set(snapshot.events.map(event => event.id));
     this.pending = [...this.pending.filter(event => ids.has(event.id)), ...fresh].filter((event, i, all) => all.findIndex(other => other.id === event.id) === i);
     this.hazards.clearLayers();
@@ -320,5 +330,5 @@ export class MobileNavigation {
     this.map.getContainer().addEventListener('keydown', this.pinKeyboard);
     this.connect(); this.resize.observe($('#navigation-map')); this.map.invalidateSize();
   }
-  stop() { this.cancelLocate(); this.map.getContainer().removeEventListener('keydown', this.pinKeyboard); this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); for (const search of this.searches ?? []) search.close(); if (this.audio.stop) this.audio.stop(); else this.audio.pause(); }
+  stop() { this.hazardCheck?.hide(); this.passedHazards?.reset(); this.cancelLocate(); this.map.getContainer().removeEventListener('keydown', this.pinKeyboard); this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); for (const search of this.searches ?? []) search.close(); if (this.audio.stop) this.audio.stop(); else this.audio.pause(); }
 }

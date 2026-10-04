@@ -125,6 +125,9 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
       if(path==='/api/telemetry/passage'&&request.method==='POST'){
         const data=await body(request);authorizeDevice(request,data);const result=engine.passage(data);json(response,200,result);broadcast();return;
       }
+      if(path==='/api/telemetry/feedback'&&request.method==='POST'){
+        const data=await body(request);authorizeDevice(request,data);const result=engine.nearbyFeedback(data);json(response,200,result);broadcast();return;
+      }
       if(path==='/api/telemetry/verify'&&request.method==='POST'){
         authorizeAdmin(request);const data=await body(request);const result=engine.verify(data.id,data.action);json(response,200,result);broadcast();return;
       }

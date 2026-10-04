@@ -1,5 +1,11 @@
 # Cornell map verification
 
+## Passed-hazard check
+
+After a fresh, plausible ahead-to-behind crossing of a hazard on the selected route, the mobile map shows “Is this still here?” for three seconds. Still here confirms/refreshes the report; Gone explicitly resolves it. Timeout never changes a report. The authenticated feedback endpoint checks observation age, accuracy and proximity, and deduplicates retries. Starting a new walk, changing servers, stopping navigation or removing the hazard clears the prompt.
+
+Seven new regressions cover crossing versus initial-behind fixes, uncertain/stale/implausible motion, route/server changes, prompt timeout and replacement, explicit answers, proximity/freshness checks and device authorization. The full suite passes **169 tests**. An isolated browser fixture with synthetic Cornell locations verified visible prompt → automatic disappearance with hazard retained, Still here → confirmation, and Gone → report removal. Fictional hazards and test controls are absent from production. Physical GPS behavior remains unverified.
+
 ## Issue 14 navigation restoration
 
 The merged deployment UI had removed navigation lifecycle/status methods and their planner, pin and recovery controls. Restored cancellation of stale location/planning requests, keyboard start/end pins, search suggestions, full planner collapse, route-update retry, lost-stream warnings, closure protection, hazard fading and focus recovery. Page-cache restoration calls `resume()` to reinstall the keyboard handler. Direct phone registration, draggable report pins, extended closure blocking, selected-route paint order, LocationPicker dropdown buttons, the ClearPath rename and NotificationChime remain in place.
