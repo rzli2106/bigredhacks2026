@@ -1,6 +1,6 @@
 # Native mobility bridge
 
-The local `pathpulse-health` Capacitor 7 plugin contains Swift HealthKit and Kotlin Health Connect implementations. The phone web interface uses the same transport in a native shell; a browser falls back to Web Motion and GPS-pinned reporting with explicit confirmation. Node 20 is sufficient for Capacitor 7. Native projects are generated locally and ignored; plugin sources and configuration are tracked.
+The local `clearpath-health` Capacitor 7 plugin contains Swift HealthKit and Kotlin Health Connect implementations. The phone web interface uses the same transport in a native shell; a browser falls back to Web Motion and GPS-pinned reporting with explicit confirmation. Node 20 is sufficient for Capacitor 7. Native projects are generated locally and ignored; plugin sources and configuration are tracked.
 
 ## iOS
 
@@ -14,7 +14,7 @@ npm run native:configure
 npx cap open ios
 ```
 
-In the App target, enable **HealthKit** and **Background Delivery** under Signing & Capabilities. The configure script selects `App/PathPulse.entitlements` for Debug and Release; select your signing team and verify that both `com.apple.developer.healthkit` and `com.apple.developer.healthkit.background-delivery` are true. The configure script writes this file, privacy strings, and `PathPulseHealthManager.shared.restoreObservers()` in `AppDelegate.didFinishLaunchingWithOptions`. Confirm that hook remains before returning from launch; background HealthKit wake-up requires reinstating queries during launch, not just after a WebView loads. `NSHealthShareUsageDescription`, motion, and both native location usage-description keys are installed (the app requests foreground location only); the plugin never requests health write access.
+In the App target, enable **HealthKit** and **Background Delivery** under Signing & Capabilities. The configure script selects `App/ClearPath.entitlements` for Debug and Release; select your signing team and verify that both `com.apple.developer.healthkit` and `com.apple.developer.healthkit.background-delivery` are true. The configure script writes this file, privacy strings, and `ClearPathHealthManager.shared.restoreObservers()` in `AppDelegate.didFinishLaunchingWithOptions`. Confirm that hook remains before returning from launch; background HealthKit wake-up requires reinstating queries during launch, not just after a WebView loads. `NSHealthShareUsageDescription`, motion, and both native location usage-description keys are installed (the app requests foreground location only); the plugin never requests health write access.
 
 The bridge requests walking asymmetry, speed, step length and step count. Observers execute anchored queries, persist anchors and at most 500 pending samples **on device**, and always call their completion handler after collection. Background delivery frequency `.immediate` is a request to iOS, not a real-time guarantee. `readSamples` drains that local queue into the foreground analyzer. Stop sharing stops observers and background delivery. HealthKit does not disclose whether read access was denied; a successful authorization request is labeled **requested**, not **granted**.
 

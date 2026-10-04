@@ -1,7 +1,7 @@
 import { NotificationChime } from './notification-chime.js';
 import { request, subscribe, configuration } from './connection.js';
-import { CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
-import { PlaceSearch } from './place-search.js';
+import { CORNELL_PLACES, CORNELL_VIEW, withinCornell } from '../src/ui/cornell.js';
+import { LocationPicker } from './location-picker.js';
 import { resolvePlace, hazardName, RouteAlerts, routeMinutes, etaDelta, hazardAhead, remainingSeconds, sameRoute, routeHasClosure } from './navigation-state.js';
 import { haversine } from '../src/routing/geo.js';
 import { incidentAppearance } from '../src/ui/reporting.js';
@@ -18,7 +18,9 @@ export class MobileNavigation {
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(this.map);
     L.control.zoom({ position: 'bottomright' }).addTo(this.map);
     this.routes = L.layerGroup().addTo(this.map); this.hazards = L.layerGroup().addTo(this.map);
-    this.searches = [new PlaceSearch($('#start-location'), { live: true, onSelect: () => { this.cancelLocate(); this.cancelPlanning(); } }), new PlaceSearch($('#destination-location'), { onSelect: () => this.cancelPlanning() })];
+    this.startPicker = new LocationPicker($('#start-location'), $('#start-toggle'), [{ name: 'My live location' }, ...CORNELL_PLACES], { label: 'Start locations' });
+    this.destinationPicker = new LocationPicker($('#destination-location'), $('#destination-toggle'), CORNELL_PLACES, { label: 'Destinations' });
+    this.searches = [this.startPicker, this.destinationPicker];
     this.pinTarget = 'end';
     $('#edit-route').onclick = () => { this.setPlannerOpen(true); $('#start-location').focus(); };
     $('#return-to-map').onclick = () => this.setPlannerOpen(false);
@@ -34,6 +36,8 @@ export class MobileNavigation {
     $('#locate-me').onclick = () => this.locate();
     $('#start-location').addEventListener('input', () => { this.cancelLocate(); this.cancelPlanning(); });
     $('#destination-location').addEventListener('input', () => this.cancelPlanning());
+    $('#start-location').addEventListener('change', () => { this.cancelLocate(); this.cancelPlanning(); });
+    $('#destination-location').addEventListener('change', () => this.cancelPlanning());
     $('#sound-toggle').onclick = () => {
       this.sound = !this.sound; $('#sound-toggle').textContent = this.sound ? 'Sound on' : 'Sound off';
       $('#sound-toggle').setAttribute('aria-pressed', String(this.sound)); if (this.sound) this.unlockAudio();
@@ -316,5 +320,5 @@ export class MobileNavigation {
     this.map.getContainer().addEventListener('keydown', this.pinKeyboard);
     this.connect(); this.resize.observe($('#navigation-map')); this.map.invalidateSize();
   }
-  stop() { this.cancelLocate(); this.map.getContainer().removeEventListener('keydown', this.pinKeyboard); this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); if (this.audio.stop) this.audio.stop(); else this.audio.pause(); }
+  stop() { this.cancelLocate(); this.map.getContainer().removeEventListener('keydown', this.pinKeyboard); this.unsubscribe?.(); clearTimeout(this.refreshTimer); this.refreshScheduled = false; this.cancelRequest(); this.resize.disconnect(); for (const search of this.searches ?? []) search.close(); if (this.audio.stop) this.audio.stop(); else this.audio.pause(); }
 }

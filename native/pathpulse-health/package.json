@@ -1,1 +1,0 @@
-{"name":"pathpulse-health","version":"0.1.0","type":"module","main":"index.js","files":["index.js","ios/","android/","PathPulseHealth.podspec","Package.swift"],"capacitor":{"ios":{"src":"ios"},"android":{"src":"android"}}}

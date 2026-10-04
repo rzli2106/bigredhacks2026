@@ -1,4 +1,4 @@
-package com.pathpulse.health
+package com.clearpath.health
 
 import android.os.Build
 import android.os.Handler
@@ -23,8 +23,8 @@ import kotlinx.coroutines.*
 import org.json.JSONArray
 import java.time.Instant
 
-@CapacitorPlugin(name = "PathPulseHealth")
-class PathPulseHealthPlugin : Plugin(), SensorEventListener {
+@CapacitorPlugin(name = "ClearPathHealth")
+class ClearPathHealthPlugin : Plugin(), SensorEventListener {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val permissions = setOf(HealthPermission.getReadPermission(StepsRecord::class), HealthPermission.getReadPermission(SpeedRecord::class))
     private val contract = PermissionController.createRequestPermissionResultContract()

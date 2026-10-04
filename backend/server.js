@@ -71,7 +71,7 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
         const bucket=previous&&at-previous.start<60?previous:{start:at,count:0};bucket.count++;limits.set(key,bucket);
         if(bucket.count>(raw?1500:120)) throw new ApiError(429,'Too many requests. Retry in a minute.');
       }
-      if(path==='/api/health' && request.method==='GET'){json(response,200,{ok:true,service:'PathPulse',edges:graph.edges.size});return;}
+      if(path==='/api/health' && request.method==='GET'){json(response,200,{ok:true,service:'ClearPath',edges:graph.edges.size});return;}
       if(path==='/api/cornell-map' && request.method==='GET'){
         response.writeHead(200,{'Content-Type':'application/json','Cache-Control':'public, max-age=300'});response.end(await readFile(resolve(root,'public/cornell-osm.json')));return;
       }
@@ -136,7 +136,7 @@ export async function createTelemetryServer({ graph, now, allowedOrigins=['http:
       }
       if(path==='/runtime-config.js'&&request.method==='GET'){
         response.writeHead(200,{'Content-Type':'text/javascript','Cache-Control':'no-store'});
-        response.end(`window.PathPulseConfig=${JSON.stringify({apiBase:publicApiUrl,wsUrl:publicWsUrl,mobileUrl:publicMobileUrl})};`);return;
+        response.end(`window.ClearPathConfig=${JSON.stringify({apiBase:publicApiUrl,wsUrl:publicWsUrl,mobileUrl:publicMobileUrl})};`);return;
       }
       if(!['GET','HEAD'].includes(request.method))throw new ApiError(405,'Method not allowed.');
       const relative=path==='/'?'index.html':path==='/mobile'||path==='/mobile/'?'mobile.html':decodeURIComponent(path).slice(1);

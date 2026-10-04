@@ -1,7 +1,7 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-COPY native/pathpulse-health ./native/pathpulse-health
+COPY native/clearpath-health ./native/clearpath-health
 RUN npm ci
 COPY . .
 ENV NODE_ENV=production
@@ -10,7 +10,7 @@ FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=8000
 COPY package*.json ./
-COPY native/pathpulse-health ./native/pathpulse-health
+COPY native/clearpath-health ./native/clearpath-health
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY backend ./backend

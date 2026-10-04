@@ -5,21 +5,21 @@ import CoreMotion
 import UIKit
 
 /// Reinstall observers during AppDelegate launch to receive HealthKit background wakes.
-@objc public final class PathPulseHealthManager: NSObject {
-    public static let shared = PathPulseHealthManager()
+@objc public final class ClearPathHealthManager: NSObject {
+    public static let shared = ClearPathHealthManager()
     private let store = HKHealthStore()
     private let lock = NSLock()
     private var observers: [HKObserverQuery] = []
     private let identifiers: [HKQuantityTypeIdentifier] = [.walkingAsymmetryPercentage, .walkingSpeed, .walkingStepLength, .stepCount]
     private let names = ["asymmetry", "speed", "step_length", "steps"]
-    private let enabledKey = "PathPulse.health.enabled"
-    private let queueKey = "PathPulse.health.queue"
+    private let enabledKey = "ClearPath.health.enabled"
+    private let queueKey = "ClearPath.health.queue"
     public var available: Bool { HKHealthStore.isHealthDataAvailable() }
     public func restoreObservers() { if UserDefaults.standard.bool(forKey: enabledKey) { start() } }
     public func request(_ completion: @escaping (Error?) -> Void) {
         let types = Set(identifiers.compactMap { HKQuantityType.quantityType(forIdentifier: $0) })
         store.requestAuthorization(toShare: [], read: types) { success, error in
-            completion(error ?? (success ? nil : NSError(domain: "PathPulse", code: 1, userInfo: [NSLocalizedDescriptionKey: "Health authorization could not be requested."])))
+            completion(error ?? (success ? nil : NSError(domain: "ClearPath", code: 1, userInfo: [NSLocalizedDescriptionKey: "Health authorization could not be requested."])))
         }
     }
     public func start() {
@@ -52,7 +52,7 @@ import UIKit
         }
     }
     private func collect(type: HKQuantityType, index: Int, completion: @escaping () -> Void) {
-        let anchorKey = "PathPulse.anchor.\(names[index])"
+        let anchorKey = "ClearPath.anchor.\(names[index])"
         let saved = UserDefaults.standard.data(forKey: anchorKey)
         let anchor = saved.flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
         let predicate = HKQuery.predicateForSamples(withStart: Date().addingTimeInterval(-86400), end: nil, options: [])
@@ -82,16 +82,16 @@ import UIKit
         return samples
     }
 }
-@objc(PathPulseHealthPlugin)
-public class PathPulseHealthPlugin: CAPPlugin, CAPBridgedPlugin {
-    public let identifier = "PathPulseHealthPlugin"
-    public let jsName = "PathPulseHealth"
+@objc(ClearPathHealthPlugin)
+public class ClearPathHealthPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "ClearPathHealthPlugin"
+    public let jsName = "ClearPathHealth"
     public let pluginMethods: [CAPPluginMethod] = ["availability", "requestPermissions", "startMonitoring", "stopMonitoring", "readSamples", "startMotion", "stopMotion"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
     private let motion = CMMotionManager()
     private var motionRequested = false
     private var lifecycleObservers: [NSObjectProtocol] = []
     public override func load() {
-        PathPulseHealthManager.shared.restoreObservers()
+        ClearPathHealthManager.shared.restoreObservers()
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.motion.stopDeviceMotionUpdates() })
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self = self, self.motionRequested else { return }; self.beginMotion()
@@ -125,14 +125,14 @@ public class PathPulseHealthPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func stopMotion(_ call: CAPPluginCall) {
         DispatchQueue.main.async { self.motionRequested = false; self.motion.stopDeviceMotionUpdates(); call.resolve() }
     }
-    @objc func availability(_ call: CAPPluginCall) { call.resolve(["available": PathPulseHealthManager.shared.available]) }
+    @objc func availability(_ call: CAPPluginCall) { call.resolve(["available": ClearPathHealthManager.shared.available]) }
     @objc public override func requestPermissions(_ call: CAPPluginCall) {
-        guard PathPulseHealthManager.shared.available else { call.reject("HealthKit is unavailable."); return }
-        PathPulseHealthManager.shared.request { error in
+        guard ClearPathHealthManager.shared.available else { call.reject("HealthKit is unavailable."); return }
+        ClearPathHealthManager.shared.request { error in
             if let error = error { call.reject(error.localizedDescription) } else { call.resolve(["requested": true, "readAccess": "not-disclosed-by-healthkit"]) }
         }
     }
-    @objc func startMonitoring(_ call: CAPPluginCall) { PathPulseHealthManager.shared.start(); call.resolve() }
-    @objc func stopMonitoring(_ call: CAPPluginCall) { PathPulseHealthManager.shared.stop(); call.resolve() }
-    @objc func readSamples(_ call: CAPPluginCall) { call.resolve(["samples": PathPulseHealthManager.shared.drain()]) }
+    @objc func startMonitoring(_ call: CAPPluginCall) { ClearPathHealthManager.shared.start(); call.resolve() }
+    @objc func stopMonitoring(_ call: CAPPluginCall) { ClearPathHealthManager.shared.stop(); call.resolve() }
+    @objc func readSamples(_ call: CAPPluginCall) { call.resolve(["samples": ClearPathHealthManager.shared.drain()]) }
 }

@@ -12,11 +12,11 @@ createServer(async(request,response)=>{
     const path=decodeURIComponent(new URL(request.url,'http://localhost').pathname);
     if(path==='/runtime-config.js'){
       response.writeHead(200,{'Content-Type':'text/javascript','Cache-Control':'no-store'});
-      response.end(`window.PathPulseConfig=${JSON.stringify({apiBase:process.env.LOCAL_API_URL||process.env.PUBLIC_API_URL||`http://127.0.0.1:${process.env.BACKEND_PORT??8000}`,wsUrl:process.env.LOCAL_WS_URL??process.env.PUBLIC_WS_URL??'',mobileUrl:process.env.PUBLIC_MOBILE_URL??''})};`);return;
+      response.end(`window.ClearPathConfig=${JSON.stringify({apiBase:process.env.LOCAL_API_URL||process.env.PUBLIC_API_URL||`http://127.0.0.1:${process.env.BACKEND_PORT??8000}`,wsUrl:process.env.LOCAL_WS_URL??process.env.PUBLIC_WS_URL??'',mobileUrl:process.env.PUBLIC_MOBILE_URL??''})};`);return;
     }
     const relative=path==='/'?'index.html':['/mobile','/mobile/'].includes(path)?'mobile.html':path==='/api/cornell-map'?'public/cornell-osm.json':path.slice(1);
     if(relative.split('/').some(part=>part==='..'||part.startsWith('.'))||!types[extname(relative)])throw new Error('Not found');
     const file=resolve(root,relative);if(!file.startsWith(root))throw new Error('Not found');
     const data=await readFile(file);response.writeHead(200,{'Content-Type':types[extname(file)],'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'strict-origin-when-cross-origin'});response.end(request.method==='HEAD'?undefined:data);
   }catch{response.writeHead(404);response.end('Not found');}
-}).listen(Number(process.env.PORT??5173),'127.0.0.1',()=>console.log(`PathPulse observer: http://127.0.0.1:${process.env.PORT??5173}`));
+}).listen(Number(process.env.PORT??5173),'127.0.0.1',()=>console.log(`ClearPath observer: http://127.0.0.1:${process.env.PORT??5173}`));

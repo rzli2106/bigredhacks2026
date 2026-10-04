@@ -6,4 +6,4 @@ artifacts
 .env.*.local
 /ios
 /android
-.pathpulse-local.json
+.clearpath-local.json

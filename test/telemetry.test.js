@@ -46,13 +46,13 @@ test('health analyzer matches fresh samples, rejects delayed records, and normal
  assert.equal(asym.ingest([{id:'jump',metric:'asymmetry',value:.12,start:now,end:now,source:'healthkit'}],[fix],now).length,0);
 });
 test('HTTP pairing, authorization, CORS, fanout to two observers, dedup, and expiry',async t=>{
- const runner=fixture();let now=runner.baseTime;const service=await createTelemetryServer({graph,now:()=>now,production:true,adminToken:'a'.repeat(40),allowedOrigins:['https://pathpulse.example'],publicApiUrl:'https://api.pathpulse.example',broadcastMs:60000});
+ const runner=fixture();let now=runner.baseTime;const service=await createTelemetryServer({graph,now:()=>now,production:true,adminToken:'a'.repeat(40),allowedOrigins:['https://clearpath.example'],publicApiUrl:'https://api.clearpath.example',broadcastMs:60000});
  const address=await service.listen(0);const base=`http://127.0.0.1:${address.port}`;t.after(()=>service.close());
- const post=async(path,body,token,origin='https://pathpulse.example')=>fetch(`${base}${path}`,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify(body)});
+ const post=async(path,body,token,origin='https://clearpath.example')=>fetch(`${base}${path}`,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify(body)});
  assert.equal((await post('/api/pairing',{},null)).status,401);assert.equal((await post('/api/pairing',{},service.adminToken,'https://evil.example')).status,403);
- const paired=await post('/api/pairing',{mobile_url:'https://pathpulse.example/mobile'},service.adminToken);assert.equal(paired.status,201);const link=new URL((await paired.json()).url),fragment=new URLSearchParams(link.hash.slice(1)),token=fragment.get('token'),device=fragment.get('device_id');
- assert.equal(link.search,'');assert.equal(fragment.get('api'),'https://api.pathpulse.example');
- const streams=[1,2].map(()=>new WebSocket(`${base.replace('http:','ws:')}/ws/stream`,{origin:'https://pathpulse.example'}));
+ const paired=await post('/api/pairing',{mobile_url:'https://clearpath.example/mobile'},service.adminToken);assert.equal(paired.status,201);const link=new URL((await paired.json()).url),fragment=new URLSearchParams(link.hash.slice(1)),token=fragment.get('token'),device=fragment.get('device_id');
+ assert.equal(link.search,'');assert.equal(fragment.get('api'),'https://api.clearpath.example');
+ const streams=[1,2].map(()=>new WebSocket(`${base.replace('http:','ws:')}/ws/stream`,{origin:'https://clearpath.example'}));
  const first=await Promise.all(streams.map(socket=>new Promise((resolve,reject)=>{socket.once('message',data=>resolve(JSON.parse(data)));socket.once('error',reject);})));assert.equal(first[0].events.length,0);
  assert.equal((await post('/api/devices/heartbeat',{device_id:'wrong'},token)).status,403);
  assert.equal((await post('/api/devices/heartbeat',{device_id:device},token)).status,200);

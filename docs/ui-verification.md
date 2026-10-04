@@ -2,9 +2,9 @@
 
 ## Issue 14 navigation restoration
 
-The merged deployment UI had removed navigation lifecycle/status methods and their planner, pin and recovery controls. Restored cancellation of stale location/planning requests, keyboard start/end pins, search suggestions, full planner collapse, route-update retry, lost-stream warnings, closure protection, hazard fading and focus recovery. Page-cache restoration calls `resume()` to reinstall the keyboard handler. Direct phone registration, draggable report pins, extended closure blocking, selected-route paint order and NotificationChime remain in place.
+The merged deployment UI had removed navigation lifecycle/status methods and their planner, pin and recovery controls. Restored cancellation of stale location/planning requests, keyboard start/end pins, search suggestions, full planner collapse, route-update retry, lost-stream warnings, closure protection, hazard fading and focus recovery. Page-cache restoration calls `resume()` to reinstall the keyboard handler. Direct phone registration, draggable report pins, extended closure blocking, selected-route paint order, LocationPicker dropdown buttons, the ClearPath rename and NotificationChime remain in place.
 
-All **163 tests pass** with local-server access, and the production build passes. Local browser checks at 375 × 812 verified keyboard Start/End suggestions, Arts Quad → Ho Plaza (340 m / 5 min), independent start-pin placement, destination Escape cancellation and Gates Hall → Bailey Hall (779 m / 10 min). Server stop/restart preserved the selected route, exposed the paused-feed warning and cleared it after a fresh snapshot. At 812 × 375 the reopened planner had no horizontal overflow. These checks do not establish physical sensor or native health delivery.
+All **162 tests pass** with local-server access, and the production build passes. Local browser checks at 375 × 812 verified keyboard Start/End suggestions, Arts Quad → Ho Plaza (340 m / 5 min), independent start-pin placement, destination Escape cancellation and Gates Hall → Bailey Hall (779 m / 10 min). Server stop/restart preserved the selected route, exposed the paused-feed warning and cleared it after a fresh snapshot. At 812 × 375 the reopened planner had no horizontal overflow. These checks do not establish physical sensor or native health delivery.
 
 
 ## Current deployed mobile verification — October 3, 2026
@@ -89,9 +89,9 @@ Fixes found during testing: identical off-path-center pins previously counted th
 
 Automated checks additionally cover all 25 campus route pairs, pedestrian one-way behavior, bends and partial segments, closure expiration, HTTP/schema/network failures with static fallback, and simulated fresh GPS fixes at all five landmarks. The browser's real GPS did not return a fix, so successful GPS acquisition on a physical phone remains unverified. Localhost supports browser geolocation; a physical phone needs an HTTPS origin. Sample incidents are fictional, and reports are kept only for the current page session.
 
-## PathPulse integration verification — October 3, 2026
+## ClearPath integration verification — October 3, 2026
 
-The newer PathPulse build extends the earlier Waymark controls with a shared backend, phone page, native health sources, and isolated simulation. The earlier session-only reporting limitations above are superseded by README.md / DEPLOYMENT.md.
+The newer ClearPath build extends the earlier Waymark controls with a shared backend, phone page, native health sources, and isolated simulation. The earlier session-only reporting limitations above are superseded by README.md / DEPLOYMENT.md.
 
 - **80 automated tests pass.** Existing sensor, geometry, partial-edge routing, all 25 Cornell landmark combinations, decay, and spatial entropy checks remain green. New tests exercise policy/schema/freshness, evidence rejection, dedup, direct clearance, precise swerves, health sample age/location/cadence matching, HTTP pairing/auth/CORS, two simultaneous WebSocket observers, token expiry, closure renewal/replay, and a phone queue that continues after a rejected report.
 - **Production bundle builds.** `NODE_ENV=production npm run build` creates both pages and locally served Leaflet assets. `npm run simulate` passes A–D on the actual Cornell graph. `sync:local -- --dry-run` validates the command plan without creating a tunnel.
@@ -103,7 +103,7 @@ The newer PathPulse build extends the earlier Waymark controls with a shared bac
 
 Bugs found during testing and fixed: server referrer suppression caused OSM policy-block tiles; corrected to strict-origin-when-cross-origin and verified normal tiles. Renewed simulation closures lost their verification identity; fixed history ID updates/replay. Copy status was hidden behind the pairing dialog; moved it inline and added a readable link. Permanently rejected phone reports blocked later valid reports; discard them with visible feedback. Stop sharing could receive late connection callbacks; inactive transports now ignore them. Native shells now start at the actual `/mobile.html` asset and use Capacitor native location rather than assuming WebView GPS support.
 
-Native checks: Swift source parses syntactically; Capacitor generates/syncs Android and discovers `pathpulse-health` and `@capacitor/geolocation`; generated Android minimum SDK is 34. Native SDK compilation is **not verified**: no Android SDK/Android Studio, full Xcode, or CocoaPods is installed. iOS project creation stopped at the CocoaPods environment check. Physical phone sensor/GPS/health delivery, background HealthKit wakes, a live ngrok tunnel, and deployed Vercel/Render hosts are not claimed as tested. No domain or hosting account was modified.
+Native checks: Swift source parses syntactically; Capacitor generates/syncs Android and discovers `clearpath-health` and `@capacitor/geolocation`; generated Android minimum SDK is 34. Native SDK compilation is **not verified**: no Android SDK/Android Studio, full Xcode, or CocoaPods is installed. iOS project creation stopped at the CocoaPods environment check. Physical phone sensor/GPS/health delivery, background HealthKit wakes, a live ngrok tunnel, and deployed Vercel/Render hosts are not claimed as tested. No domain or hosting account was modified.
 
 ## Map-first mobile navigation — October 3, 2026
 
