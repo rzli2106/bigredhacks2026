@@ -1,5 +1,12 @@
 # Cornell map verification
 
+## Issue 14 navigation restoration
+
+The merged deployment UI had removed navigation lifecycle/status methods and their planner, pin and recovery controls. Restored cancellation of stale location/planning requests, keyboard start/end pins, search suggestions, full planner collapse, route-update retry, lost-stream warnings, closure protection, hazard fading and focus recovery. Page-cache restoration calls `resume()` to reinstall the keyboard handler. Direct phone registration, draggable report pins, extended closure blocking, selected-route paint order and NotificationChime remain in place.
+
+All **163 tests pass** with local-server access, and the production build passes. Local browser checks at 375 × 812 verified keyboard Start/End suggestions, Arts Quad → Ho Plaza (340 m / 5 min), independent start-pin placement, destination Escape cancellation and Gates Hall → Bailey Hall (779 m / 10 min). Server stop/restart preserved the selected route, exposed the paused-feed warning and cleared it after a fresh snapshot. At 812 × 375 the reopened planner had no horizontal overflow. These checks do not establish physical sensor or native health delivery.
+
+
 ## Current deployed mobile verification — October 3, 2026
 
 [Native health lifecycle PR #12](https://github.com/rzli2106/bigredhacks2026/pull/12) is merged as `97058ba` and confirmed Live by Render. Health startup, reads and shutdown are serialized: a late old startup cannot stop a newer session, polls cannot overlap, and stopped generations cannot deliver samples/status. Six bridge regressions cover pending startup/read cancellation, polling deduplication, read failure retry, cancelled permissions, unavailable providers and denied-permission recovery. **158 tests** and web/Android/iOS checks pass in [CI](https://github.com/rzli2106/bigredhacks2026/actions/runs/37139337914); the matching APK passed integrity checks. Browser regression verified unpaired Start Sensors recovery and Gates Hall → Uris Hall (430 m / 6 min); production Arts Quad → Ho Plaza showed 340 m / 5 min with full planner collapse. Health samples remain processed locally. Physical provider delivery remains pending.
