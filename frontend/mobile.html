@@ -27,6 +27,10 @@
       <span class="eyebrow">A HEADS-UP ON YOUR WALK</span><p id="reroute-message"></p>
       <div class="alert-actions"><button id="dismiss-reroute" class="secondary" type="button">Dismiss</button><button id="accept-reroute" class="primary" type="button">Accept</button></div>
     </section>
+    <section id="hazard-check" class="hazard-check" aria-label="Verify passed hazard" hidden>
+      <p id="hazard-check-label" role="status" aria-live="polite"></p>
+      <div><button id="hazard-still-here" type="button">Still here</button><button id="hazard-gone" type="button">Gone</button></div>
+    </section>
     <section class="bottom-dock" aria-label="Navigation and sharing controls">
       <div class="dock-handle" aria-hidden="true"></div>
       <p id="active-route" class="active-route" role="status" hidden></p>

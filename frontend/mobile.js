@@ -54,7 +54,11 @@ async function ensureLocation() {
   }
   return location;
 }
-navigation = new MobileNavigation({ api: deviceSession?.api, getLocation: () => location, ensureLocation, notify: message });
+navigation = new MobileNavigation({ api: deviceSession?.api, getLocation: () => location, ensureLocation, notify: message, onHazardAnswer: async (event, action) => {
+  const point = freshLocation(); await ensureSession();
+  await request('/api/telemetry/feedback', { api: deviceSession.api, token: deviceSession.token, method: 'POST',
+    body: { device_id: deviceSession.deviceId, id: event.id, action, lat: point.lat, lng: point.lon, timestamp: point.timestamp, accuracy_meters: point.accuracyMeters } });
+} });
 const Motion = nativePlatform() ? NativeMotionService : MotionService;
 const motion = new Motion({
   bridge: Health, config: { rotationLimitRadS: SHOCK_GATE.gyroLimitDegS * Math.PI / 180 },

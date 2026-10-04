@@ -1,5 +1,5 @@
 import { DynamicEdgeCosts, EdgeIndex, DisambiguationEngine, routeBetweenPins } from '../src/routing/index.js';
-import { validateCoordinate } from '../src/routing/geo.js';
+import { haversine, validateCoordinate } from '../src/routing/geo.js';
 import { TELEMETRY_POLICY, shockRejection, unixSeconds } from '../src/telemetry/policy.js';
 import { withinCornell } from '../src/ui/cornell.js';
 import { RoadBlocks } from '../src/routing/road-blocks.js';
@@ -12,7 +12,7 @@ export class TelemetryEngine {
   constructor(graph, { now = () => Date.now()/1000, enforceCoverage = true, maxEvents = 5000 } = {}) {
     this.blocks = new RoadBlocks(graph); this.graph = graph; this.index = new EdgeIndex(graph); this.now = now; this.enforceCoverage = enforceCoverage; this.maxEvents = maxEvents;
     this.costs = new DynamicEdgeCosts(graph, { now, cleanupIntervalMs: 0 }); this.evidence = new DisambiguationEngine(this.costs);
-    this.metadata = new Map(); this.dedup = new Map(); this.instanceId = globalThis.crypto.randomUUID(); this.revision = 0;
+    this.feedback = new Map(); this.metadata = new Map(); this.dedup = new Map(); this.instanceId = globalThis.crypto.randomUUID(); this.revision = 0;
   }
   dispose() { this.costs.dispose(); }
   ingest(payload) {
@@ -107,6 +107,24 @@ export class TelemetryEngine {
   routeOptions(from,to) {
     const snapshot=this.snapshot();
     return {...walkingRouteOptions(this.graph,this.index,from,to,{costs:this.costs,events:snapshot.events,timestamp:snapshot.time}),revision:snapshot.revision,instance_id:this.instanceId};
+  }
+  nearbyFeedback(payload) {
+    const { device_id, id, action, lat, lng, accuracy_meters } = payload;
+    if (typeof device_id !== 'string' || !/^[\w:-]{1,80}$/.test(device_id) || typeof id !== 'string' || !id.length || id.length > 180 || !['confirm','resolve'].includes(action)) throw new ApiError(400,'Invalid hazard feedback.');
+    try { validateCoordinate({lat,lon:lng}); } catch { throw new ApiError(400,'Invalid coordinate.'); }
+    let timestamp; try { timestamp = unixSeconds(payload.timestamp); } catch { throw new ApiError(400,'Invalid observation time.'); }
+    const now = this.now();
+    if (timestamp > now + 5 || now - timestamp > 10 || !Number.isFinite(accuracy_meters) || accuracy_meters < 0 || accuracy_meters > 20) throw new ApiError(422,'Feedback needs a fresh location with accuracy within 20 m.');
+    for (const [key,item] of this.feedback) if (now - item.time > 120) this.feedback.delete(key);
+    const key = JSON.stringify([device_id,id,action]);
+    if (this.feedback.has(key)) return {accepted:true,duplicate:true};
+    this.prune();
+    const meta = [...this.metadata].find(([,item]) => item.id === id);
+    const event = meta && this.events().find(item => item.id === meta[0]);
+    if (!event) throw new ApiError(404,'Report no longer exists.');
+    if (haversine({lat,lon:lng},{lat:event.coordinate.lat,lon:event.coordinate.lng}) + accuracy_meters > 40) throw new ApiError(422,'You must be near this hazard to verify it.');
+    if (this.feedback.size >= 5000) throw new ApiError(429,'Feedback capacity reached. Try again later.');
+    const result = this.verify(id,action); this.feedback.set(key,{time:now}); return result;
   }
   verify(id,action) {
     const item=[...this.metadata.entries()].find(([,meta])=>meta.id===id);
