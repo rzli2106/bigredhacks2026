@@ -1,67 +1,165 @@
 # ClearPath
 
-A Cornell pedestrian map that receives derived phone hazards, changes walking routes, and lets evidence decay. Real OpenStreetMap geometry is shipped locally (2,337 nodes / 6,008 directed edges). Live observer and simulation modes have separate state; fictional samples never enter the live feed.
+**A clearer way to walk.**
+
+ClearPath is a pedestrian navigation prototype built for **BigRedHacks 2026**. It combines real Cornell walking paths with crowdsourced reports and possible sensor impacts to help walkers respond to temporary obstacles. Reports lose influence over time, and fresh evidence can confirm or resolve them.
+
+[Open the dashboard](https://www.clearpath.wiki/) · [Open walking navigation](https://www.clearpath.wiki/mobile)
+
+## What it does
+
+- **Plan a campus walk:** search Cornell landmarks or place start and destination pins on the map.
+- **Compare routes:** see walking distance, estimated duration, and an available alternative.
+- **Report obstacles:** capture a location, adjust the pin, choose a category, and explicitly confirm the report.
+- **Receive live updates:** new hazards on the selected route trigger an Accept/Dismiss reroute proposal.
+- **Verify a passed hazard:** “Is this still here?” appears for three seconds; **Still here** refreshes the report, **Gone** resolves it, and no response leaves it unchanged.
+- **Explore simulations:** test impacts, bag tumbles, avoidance, and decay without adding fictional reports to the live feed.
+
+## Quick start
+
+Requires **Node.js 20 or newer** and npm.
 
 ```sh
 npm ci
 npm run dev
-# If another app uses 8000:
+```
+
+Open **http://127.0.0.1:5173** for the dashboard or **http://127.0.0.1:5173/mobile** for walking navigation. The development command builds the frontend and starts the frontend server and backend. It does not watch source changes; restart it after editing.
+
+If port 8000 is already in use:
+
+```sh
 BACKEND_PORT=8001 npm run dev
 ```
 
-Open http://127.0.0.1:5173. Choose **Starting point**, drop A; choose **Destination**, drop B; then find a walking route. Drag pins or use keyboard pan + Enter. Campus reloads use the bundled graph, with five landmark shortcuts and explicit outside-coverage feedback. Leaflet and the graph are served locally; background tiles come from OSM with attribution and a compliant referrer policy. For graph maintenance only, run `npm run map:refresh`.
+For configuration, use `.env.example` as a reference. Keep `ADMIN_TOKEN` private; never put it in a `PUBLIC_*` variable or commit credentials.
 
-Open HTTPS `/mobile` directly. On the phone, tap **Enable Navigation & Sensors** to request motion/location permission. Browser raw motion and fresh GPS fixes are sent in bounded authenticated WSS batches at up to 20 batches/second to `/ws/device`. Every motion sample is preserved so short impacts survive network throttling. The server samples raw motion onto a 50 Hz grid; gyro >300°/s, missing data, and wide impulses are rejected. An impact needs jerk >72.25 m/s³, magnitude >13.6 m/s², and FWHM <45 ms. A fresh Cornell fix is required to attach a hazard. Report opens a GPS-centered mini-map with a draggable pin, Expand/Minimize, Closure/Pothole/Rough Terrain selection, and an explicit Confirm Report POST. GPS failure disables confirmation. Stop Sensors clears telemetry; GPS navigation continues until the page closes. Rejected reports do not block later valid ones.
+### Try a route
 
-The Swift/Kotlin Capacitor bridge requests HealthKit mobility data or Android 14+ Health Connect StepsRecord/SpeedRecord. Local rolling baselines identify relative asymmetry jumps >15% or speed drops >50%; short step intervals normalize cadence and suppress confirmed stops. Delayed records never get attached to a current location. Native health data stays on the phone; only a fresh derived candidate and matched coordinate are sent. Health frameworks require a native app, not Safari/Chrome. See [native setup and validation limits](native/README.md).
+On the dashboard, choose **Starting point**, place pin A, choose **Destination**, place pin B, and select **Find a walking route**.
 
-Backend endpoints:
+On `/mobile`, choose **Arts Quad** as the start and **Ho Plaza** as the destination, then select **Start Route**. The planner collapses to show the map. Use **Edit route** to change the endpoints.
+
+Motion and location access require a secure context. For a physical phone, use the hosted HTTPS app or the local tunnel workflow in [DEPLOYMENT.md](DEPLOYMENT.md); the phone’s `127.0.0.1` does not refer to your computer. Manual routing between landmarks does not require sensor sharing.
+
+### Try the simulations
+
+Choose **Simulation → Run all four**, or run:
+
+```sh
+npm run simulate
+```
+
+| Scenario | Demonstrates |
+| --- | --- |
+| A · Pothole | A generated impact adds a penalty and changes the weighted route. |
+| B · Bag tumble | Rotation gating rejects a generated tumble. |
+| C · Swerves | Precise synthetic bypass traces reinforce a hazard. |
+| D · Decay | A finite penalty halves over time and the weighted route returns. |
+
+**Add samples** switches to Simulation and creates fictional incidents. Simulation state is separate from live reports.
+
+## How it works
+
+1. **Collect evidence.** Users submit manual reports, or motion filters identify possible impacts.
+2. **Match a walking path.** A spatial index finds the nearest OpenStreetMap segment within 40 meters.
+3. **Update costs.** Events attach temporary penalties to the relevant directed graph edges.
+4. **Calculate routes.** Dijkstra’s algorithm evaluates paths using the applicable cost policy.
+5. **Update connected maps.** WebSockets broadcast derived hazard snapshots after changes and every five seconds by default.
+
+The bundled Cornell network contains **2,337 nodes and 6,008 directed edges**. Leaflet renders the map; OpenStreetMap supplies background tiles and walking geometry. Refresh the bundled geometry with `npm run map:refresh`.
+
+### Time decay
+
+A finite hazard contributes:
+
+```text
+remaining penalty = initial penalty × 2^(-age / half-life)
+```
+
+For example, a 50-meter penalty with a 15-minute half-life becomes 25 after 15 minutes and 12.5 after 30 minutes. Penalties are **virtual meters for route selection**, not additional distance or walking time. Finite events are pruned below 1% of their original penalty.
+
+| Event | Initial penalty × severity | Half-life / expiry |
+| --- | --- | --- |
+| Sensor shock | 50 virtual meters | 15-minute half-life |
+| Terrain drag | 100 virtual meters | 30-minute half-life |
+| Manual hazard | 300 virtual meters | 60-minute half-life |
+| Manual closure | Impassable | Hard expiry after four hours, or explicit resolution |
+
+The core weighted router supports gradual cost decay. **Mobile alternatives currently exclude all active hazard edges**, while the direct route provides a distance-based comparison. Walking estimates use physical distance and traversal speed, including supported congestion effects.
+
+### Sensors and native integration
+
+The shared motion filter targets a 50 Hz sample grid and checks rotation, jerk, peak acceleration, and baseline-relative impulse width. Missing sensor data and broken sample continuity reset the filter. These checks produce **impact candidates**, not verified pothole classifications.
+
+- **Browser:** raw motion is uploaded in bounded authenticated WebSocket batches and filtered on the backend; local filtering also runs.
+- **Native:** Swift/Core Motion and Kotlin/SensorManager provide samples through Capacitor; gated impact candidates are uploaded.
+- **Native health:** HealthKit or Android 14+ Health Connect supplies available mobility records. Local analysis matches fresh anomalies to location; raw health measurements stay on the phone.
+
+See [native setup](native/README.md) and [device verification limits](docs/native-device-verification.md).
+
+## Tech stack and code map
+
+| Component | Technology | Main files |
+| --- | --- | --- |
+| Frontend | JavaScript, HTML, CSS, Leaflet | `frontend/mobile.js`, `frontend/mobile-navigation.js`, `src/ui/app.js` |
+| Backend | Node.js HTTP server, `ws` | `backend/server.js`, `backend/engine.js` |
+| Walking graph and routing | OpenStreetMap, KD-tree spatial index, Dijkstra | `src/routing/graph.js`, `edge-index.js`, `shortest-path.js` |
+| Dynamic costs | In-memory events and exponential decay | `src/routing/dynamic-cost.js` |
+| Motion filtering | Shared JavaScript pipeline | `src/sensor-pipeline.js`, `src/telemetry/policy.js` |
+| Spatial evidence | Clearance, avoidance, and entropy checks | `src/routing/disambiguation.js`, `spatial-evidence.js` |
+| Native bridge | Capacitor, Swift, Kotlin | `native/clearpath-health/` |
+| Build and checks | esbuild, Node test runner, GitHub Actions | `scripts/build.js`, `test/`, `.github/workflows/` |
+
+## API overview
+
+Device submissions require a scoped device token. Observer reporting and administrative verification require the observer key in production. Route queries and derived snapshots are publicly readable.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /api/devices/register` | Direct phone registration; scoped token, 10 new sessions/minute per address |
-| `WSS /ws/device` | Authenticated, bounded raw sensor batches and acknowledgements |
-| `POST /api/pairing` | Observer-authorized, scoped phone QR |
-| `POST /api/devices/heartbeat` | Paired device activity |
-| `POST /api/telemetry/raw` | Paired raw browser motion batches, server signal gating |
-| `POST /api/telemetry/event` | Paired phone event ingestion |
-| `POST /api/telemetry/manual` | Observer manual report |
-| `POST /api/telemetry/passage` | Conservative swerve/clearance and spatial entropy checks |
-| `POST /api/telemetry/verify` | Observer confirm/resolve |
-| `GET /api/telemetry/snapshot` | Derived hazards and active device count |
-| `WS /ws/stream` | Public read-only observer snapshots; reconnecting client |
-| `POST /api/route/options` | Direct and distinct hazard-free alternative, walking durations |
-| `POST /api/route` | Current dynamic route between `{lat,lon}` pins |
-| `GET /api/health` | Service health |
+| `POST /api/devices/register` | Create or renew a scoped device session. |
+| `POST /api/devices/heartbeat` | Update device activity. |
+| `POST /api/telemetry/event` | Submit a manual or derived event. |
+| `POST /api/telemetry/raw` | Submit raw browser motion batches over HTTP. |
+| `POST /api/telemetry/passage` | Submit a trace for spatial evidence analysis. |
+| `POST /api/telemetry/feedback` | Confirm or resolve a nearby hazard. |
+| `POST /api/telemetry/manual` | Submit an observer-authorized manual report. |
+| `POST /api/telemetry/verify` | Confirm or resolve a report as an observer. |
+| `GET /api/telemetry/snapshot` | Read current derived hazards. |
+| `POST /api/route/options` | Get direct and available alternative routes. |
+| `POST /api/route` | Get a dynamically weighted route. |
+| `GET /api/cornell-map` | Read the bundled walking map. |
+| `GET /api/health` | Check service health. |
+| `/ws/stream` | Read live derived snapshots. |
+| `/ws/device` | Upload authenticated browser motion. |
 
-Event payload: `{device_id,event_id,lat,lng,source,metric_type,severity,timestamp,accuracy_meters}`. Sources are `web_motion`, `native_motion`, `healthkit`, `health_connect`, `manual`; severity is `(0,1]`. Sensor shocks also need `{evidence:{gyro_deg_s,peak_jerk,peak_acceleration,fwhm_ms}}`. Timestamps may be Unix seconds/milliseconds or ISO, but must be fresh within two minutes. Events snap to a KD tree of real polyline primitives within 40 m and attach to applicable directions. Retry IDs deduplicate uploads. Public snapshots exclude device IDs, raw motion, and raw health values. Raw motion filter state is transient and expires after 45 seconds of inactivity; motion is not queued for offline replay. Missing gyro axes, sensor gaps, and stale/imprecise GPS fail closed.
+Repeated event IDs deduplicate report retries. Public snapshots omit device IDs, raw motion, and raw health values. Development loopback requests can use observer controls without a key; this bypass is disabled in production.
 
-| Event | Initial virtual-meter penalty | Half-life / expiry |
-| --- | --- | --- |
-| SENSOR_SHOCK | 50 × severity | 15 min |
-| TERRAIN_DRAG | 100 × severity | 30 min |
-| MANUAL_HAZARD | 300 × severity | 60 min |
-| MANUAL_CLOSURE | Infinity | Hard expiry at 240 min |
-
-Finite cost is base distance + Σ `Pk × 2^(-(now-tk)/half_life)`, pruned below 1%. Infinity uses explicit expiry to avoid permanent blocks/NaN. Smooth traversal ≤0.8 m halves finite penalties; swerving >0.8–2.5 m preserves them. Full approach/departure, explicit shock-free evidence, high sample cadence, and sufficient precision are required. Typical phone GPS cannot support sub-meter clearance or a 0.5 m entropy grid; uncertain traces leave hazards unchanged. Congestion evidence changes traversal speed without erasing explicit closures. See [sensor and routing internals](docs/routing-engine.md).
-
-Use **Simulation → Run all four** or `npm run simulate`: A injects a gated impact and detours 36 → 62 m; B rejects bag tumble in client/backend; C sends five precise bypass tracks and preserves the hazard; D verifies decay at +15/+30/+60 min and direct-path restoration. The time slider replays history when rewound, including confirmations/resolutions. Map-click injection offers all four types. Add samples switches to Simulation and creates clearly fictional campus incidents.
+## Development and deployment
 
 ```sh
-npm test
-npm run simulate
-npm run build
-npm run sync:local -- --dry-run
+npm test                  # Automated checks
+npm run build             # Build the dashboard and mobile app into dist/
+npm run routing:benchmark # Benchmark nearest-edge lookup, not full routing load
 ```
 
-[DEPLOYMENT.md](DEPLOYMENT.md) covers Vercel + Render HTTPS/WSS, environment/CORS, the ngrok phone-sync command, and optional custom DNS. **No GoDaddy domain is required**. Local pairing/verification is limited to direct loopback requests; remote production writes require the backend observer key or a scoped device token. No admin secret is bundled into the frontend.
+The backend can serve the built frontend and API together. Production requires an `ADMIN_TOKEN`, allowed origins, and HTTPS/WSS URLs. Native builds also need the correct public backend URLs before syncing.
 
-Reports/pairings currently live in one backend process's memory and reset on restart. This is a hackathon implementation, not field-validated hazard detection or wheelchair accessibility routing. Browser and automated verification are documented in [UI verification](docs/ui-verification.md); native SDK builds, actual phone sensors/health delivery, a live ngrok tunnel, and hosted deployment need their respective toolchains/accounts/device checks.
+- [Deployment and environment configuration](DEPLOYMENT.md)
+- [Routing and sensor internals](docs/routing-engine.md)
+- [Browser verification](docs/ui-verification.md)
+- [Native setup](native/README.md)
+- [Physical-device verification checklist](docs/native-device-verification.md)
 
-Browser raw payload: `{device_id,samples:[{timestamp,accelerationIncludingGravity:{x,y,z},rotationRate:{alpha,beta,gamma}}],location:{lat,lng,accuracy_meters,timestamp}}`. Sample timestamps are Unix milliseconds; location timestamps are Unix seconds. Batches contain 1–32 samples, at most five seconds old; location is nullable while GPS is unavailable and must be within ten seconds with accuracy ≤20 m to attach a hazard. Raw uploads use scoped device authorization and a separate 1,500 requests/minute limit. Accepted hazards immediately broadcast coordinates and dynamic edge costs through `/ws/stream`. Native derived events continue through `/api/telemetry/event`.
+## Current limitations
 
-The map-first `/mobile` planner defaults Start Location to live GPS; Locate me or Find routes requests location. Enter a Cornell landmark or latitude, longitude, or tap a destination on the map. Blue marks the selected route, grey the other option; cards show distance, walking duration, and arrival time. Direct routes are comparison paths and may contain marked hazards. Alternatives exclude active hazard edges; the UI explicitly reports when none is possible. New hazards ahead trigger a slide-down Accept/Dismiss proposal and a short local HTML5 Audio chime (with a Sound toggle and gesture priming). Repeated/decaying snapshots do not repeat the alert. The active path changes on selection or Accept; GPS updates refresh options and remaining-time estimates. The 15% impact calibration is shared in `SHOCK_GATE`; gyro and FWHM rejection limits remain unchanged.
+ClearPath is a hackathon prototype:
 
-Direct phone activation: open HTTPS `/mobile` and tap **Enable Navigation & Sensors**. The gesture primes notification audio and requests motion/GPS permissions before network awaits. A persistent local device ID is registered through `POST /api/devices/register`; the returned short-lived scoped token authenticates the first JSON message on WSS `/ws/device`. Telemetry messages carry `{type:"telemetry",device_id,samples,location}`; acknowledgements bound the client to one batch in flight at up to 20 Hz. Tokens never appear in WebSocket URLs. The observer `/ws/stream` stays read-only. The desktop dashboard has no phone-pairing controls; mobile device registration is independent.
+- **Cornell coverage only:** location suggestions contain five campus landmarks, and routing uses a bundled OSM snapshot.
+- **In-memory shared state:** reports and device sessions reset when the backend restarts; multiple backend instances do not share state.
+- **No proof of report truth:** authorization, validation, rate limits, and deduplication limit misuse but do not establish that a report or location is genuine.
+- **Conservative spatial clearance:** automatic swerve/clearance and crowd checks require unusually precise trajectories; uncertain observations do not clear hazards.
+- **Field validation pending:** automated tests and native compilation do not establish real-device detection accuracy, battery usage, or health-record delivery.
+- **No complete wheelchair profile:** steps, slopes, surfaces, and curb access need additional accessibility policies and validation.
 
-Destination suggestions use a touch-friendly button list rather than native datalist. The selected blue route renders above grey alternatives, including their shared geometry. Manual report pins start at GPS and can be dragged; Confirm freezes the chosen coordinates and event ID for safe retries. Hard closures cover both directions of the connected road block (OSM way/name), including tagged micro-segments, stopping at intersections. Resolving or expiring the closure releases all of its attachments.
+OpenStreetMap geometry and tiles retain their contributor attribution. The bundled map data is licensed under **ODbL-1.0**.
