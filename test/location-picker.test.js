@@ -52,9 +52,9 @@ test('filtered start selection is keyboard accessible and routes from the select
   f.start.dispatchEvent({type:'keydown',key:'ArrowDown',preventDefault(){}});
   assert.equal(document.activeElement,f.startPicker.menu.children[0]);document.activeElement.onclick();
   f.destinationToggle.onclick();f.destinationPicker.menu.children.find(button=>button.textContent==='Arts Quad').onclick();
-  for(const id of ['route-options','active-route','find-routes','route-status'])new f.Element(id);
+  for(const id of ['route-options','active-route','find-routes','route-status','locate-me','return-to-map','hazard-stream-status','route-update-warning','route-update-status','retry-route'])new f.Element(id);
   const nav=Object.create(MobileNavigation.prototype);let gpsCalls=0,requested;
-  Object.assign(nav,{requestId:0,routes:{clearLayers(){}},hideAlert(){},markDestination(){},getLocation:()=>null,
+  Object.assign(nav,{requestId:0,planningId:0,routes:{clearLayers(){}},hideAlert(){},markStart(){},markDestination(){},getLocation:()=>null,
     ensureLocation:async()=>gpsCalls++,refresh:async()=>{requested={from:nav.from,to:nav.to};}});
   await nav.generate();
   assert.equal(gpsCalls,0);assert.equal(nav.liveStart,false);
